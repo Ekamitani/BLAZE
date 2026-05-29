@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "setups": {
+    "R001": {
+      "nome": "00_curvas_criterioso",
+      "data_hora": "2026-05-28 14:12:54",
+      "params": {
+        "detector_strategy": "linhas_arcos_orientado",
+        "hough_source_any": "morph",
+        "merge_collinear_enabled": true,
+        "merge_gap_px": 30,
+        "merge_angle_tol_deg": 5.0,
+        "merge_perp_tol_px": 8,
+        "oriented_accept_gap_pairs": true,
+        "oriented_pair_axis_gap_px": 60,
+        "oriented_use_union_interval": true,
+        "single_line_candidates_enabled": false,
+        "single_line_width_px": 60,
+        "single_line_max": 20,
+        "pair_rank_len_weight": 0.35,
+        "pair_rank_overlap_weight": 0.3,
+        "pair_rank_dist_weight": 0.2,
+        "pair_rank_angle_weight": 0.15,
+        "oriented_use_score_search": true,
+        "oriented_parallel_expand_pct": 80,
+        "oriented_parallel_step_px": 10,
+        "oriented_cap_stop_score": 0.18,
+        "oriented_perp_extra_pct": 14,
+        "oriented_min_cap_edges": 12,
+        "oriented_arc_margin_px": 20
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Resultados gerados
+vision/results/*
+!vision/results/.gitkeep
+
+jet_automation/results/*
+!jet_automation/results/.gitkeep
+
+# Setups locais dos usuários
+vision/parameters_setups/user/*
+!vision/parameters_setups/user/.gitkeep
+
+jet_automation/parameters_setups/user/*
+!jet_automation/parameters_setups/user/.gitkeep
+
+# Modelos treinados grandes
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+*.h5
+
+# Arquivos temporários
+*.tmp
+*.log
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

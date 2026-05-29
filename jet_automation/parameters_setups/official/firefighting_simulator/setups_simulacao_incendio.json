@@ -1,0 +1,53 @@
+{
+  "Padrão": {
+    "intervalo": 160,
+    "vel_borda": 10,
+    "vel_outras": 18,
+    "permanencia": 4,
+    "thr_quente": 0.58,
+    "erosao": 3,
+    "iter_erosao": 1,
+    "min_pixels": 60,
+    "n_pontos": 12,
+    "offset_borda": 4,
+    "thr_parada": 0.58,
+    "prod_bbox": 3600,
+    "raio_atuacao": 70,
+    "intensidade_cursor": 1.0,
+    "recuperacao": 0.2
+  },
+  "140.6.1.45.011.5.1.60.015.5.10.1000.70.2.006": {
+    "intervalo": 140,
+    "vel_borda": 6,
+    "vel_outras": 45,
+    "permanencia": 1,
+    "thr_quente": 0.11,
+    "erosao": 5,
+    "iter_erosao": 1,
+    "min_pixels": 60,
+    "n_pontos": 5,
+    "offset_borda": 10,
+    "thr_parada": 0.15,
+    "prod_bbox": 1000,
+    "raio_atuacao": 70,
+    "intensidade_cursor": 2.0,
+    "recuperacao": 0.06
+  },
+  "140.6.10.1.011.5.1.60.015.5.12.3500.70.2.006": {
+    "intervalo": 140,
+    "vel_borda": 6,
+    "vel_outras": 10,
+    "permanencia": 1,
+    "thr_quente": 0.11,
+    "erosao": 5,
+    "iter_erosao": 1,
+    "min_pixels": 60,
+    "n_pontos": 5,
+    "offset_borda": 12,
+    "thr_parada": 0.15,
+    "prod_bbox": 3500,
+    "raio_atuacao": 70,
+    "intensidade_cursor": 2.0,
+    "recuperacao": 0.06
+  }
+}
