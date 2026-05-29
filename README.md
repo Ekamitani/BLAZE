@@ -96,3 +96,26 @@ jet_automation/results/
 ~~~
 
 Essas pastas também não são enviadas ao GitHub, exceto pelo arquivo `.gitkeep`.
+
+## Guia de uso local
+
+Para executar o projeto em outro computador usando Visual Studio Code, consulte:
+
+~~~text
+GUIA_USO_LOCAL.md
+~~~
+
+## Notebooks principais
+
+Detector clássico de cilindros:
+
+~~~text
+vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+~~~
+
+Simulador de atuação do jato de água:
+
+~~~text
+jet_automation/simulation/firefighting_simulator/firefighting_simulator.ipynb
+~~~
+
