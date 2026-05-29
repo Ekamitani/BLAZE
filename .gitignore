@@ -37,3 +37,10 @@ jet_automation/parameters_setups/user/*
 # Sistema operacional
 .DS_Store
 Thumbs.db
+
+# Datasets locais
+vision/datasets/cylinders/*
+!vision/datasets/cylinders/.gitkeep
+
+vision/datasets/fire/*
+!vision/datasets/fire/.gitkeep
