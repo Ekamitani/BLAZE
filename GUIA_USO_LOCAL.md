@@ -2,6 +2,22 @@
 
 Este guia explica como rodar os notebooks do projeto BLAZE em um computador local usando Visual Studio Code.
 
+## Opção rápida: instalação automática
+
+No Linux, após clonar o repositório, execute:
+
+~~~bash
+bash scripts/setup_linux.sh
+~~~
+
+No Windows, após clonar o repositório, execute no Prompt de Comando:
+
+~~~bat
+scripts\setup_windows.bat
+~~~
+
+Esses scripts criam o ambiente virtual `.venv`, instalam as dependências e registram o kernel Jupyter `Python (BLAZE)`.
+
 ## 1. Clonar o repositório
 
 ~~~bash
