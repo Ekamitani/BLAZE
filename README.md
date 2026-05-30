@@ -136,3 +136,29 @@ Documentação específica dos notebooks:
 Use GUIA_USO_LOCAL.md para instalar o projeto em outro computador.
 Use INSTALACAO_DADOS.md para instalar dataset e curadoria.
 Use GUIA_SETUPS_PARAMETRICOS.md para aprender a exportar setups locais como setups oficiais compartilhados pelo GitHub.
+
+## Automação de setups
+
+O projeto possui scripts auxiliares para comparar e promover setups paramétricos entre as pastas locais user/ e oficiais official/.
+
+Comparar setups locais e oficiais:
+
+    python scripts/comparar_setups.py --verbose
+
+Promover um setup local para setup oficial:
+
+    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005
+
+Tipos disponíveis:
+
+    cilindros_parametricos
+    cilindros_refinamento
+    simulador_incendio
+
+Para sobrescrever intencionalmente um setup oficial existente:
+
+    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005 --overwrite
+
+Para detalhes completos, consulte:
+
+    GUIA_SETUPS_PARAMETRICOS.md
