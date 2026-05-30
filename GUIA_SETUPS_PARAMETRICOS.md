@@ -168,3 +168,75 @@ Depois de testar e decidir que um setup deve ser compartilhado:
 Depois, peça para a outra pessoa atualizar:
 
     git pull --ff-only
+
+## 11. Scripts de automação para setups
+
+Além do fluxo manual, o projeto possui scripts para facilitar a comparação e promoção de setups.
+
+### Comparar setups locais e oficiais
+
+Use:
+
+    python scripts/comparar_setups.py
+
+Para uma listagem mais detalhada:
+
+    python scripts/comparar_setups.py --verbose
+
+Esse script compara os arquivos em user/ com os arquivos em official/ e mostra:
+
+    - setups iguais;
+    - setups que existem apenas em user/;
+    - setups que existem apenas em official/;
+    - setups com mesmo ID, mas parâmetros diferentes.
+
+Esse é o primeiro comando recomendado após salvar novos setups pelo notebook.
+
+### Promover setup local para oficial
+
+Quando um setup local estiver pronto para ser compartilhado, use:
+
+    python scripts/promover_setup.py --tipo TIPO --id ID_DO_SETUP
+
+Exemplos:
+
+    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005
+    python scripts/promover_setup.py --tipo cilindros_refinamento --id R002
+    python scripts/promover_setup.py --tipo simulador_incendio --id CENARIO_001
+
+Tipos disponíveis:
+
+    cilindros_parametricos
+    cilindros_refinamento
+    simulador_incendio
+
+Se o ID já existir no arquivo oficial, o script bloqueia a operação por segurança.
+
+Para sobrescrever intencionalmente um setup oficial existente, use:
+
+    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005 --overwrite
+
+Use --overwrite com cuidado, pois ele substitui o setup oficial existente pelo setup local com o mesmo ID.
+
+### Fluxo automatizado recomendado
+
+Depois de salvar um setup pelo notebook:
+
+    python scripts/comparar_setups.py --verbose
+
+Se aparecer um setup local novo em user/, promova-o:
+
+    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005
+
+Depois teste o notebook usando o setup oficial promovido.
+
+Por fim, envie ao GitHub:
+
+    git status --short
+    git add caminho/do/setup/oficial.json
+    git commit -m "Promove setup oficial S005"
+    git push
+
+Outra pessoa receberá o setup com:
+
+    git pull --ff-only
