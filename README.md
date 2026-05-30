@@ -119,3 +119,20 @@ Simulador de atuação do jato de água:
 jet_automation/simulation/firefighting_simulator/firefighting_simulator.ipynb
 ~~~
 
+
+## Documentação complementar
+
+Guias principais do projeto:
+
+    GUIA_USO_LOCAL.md
+    INSTALACAO_DADOS.md
+    GUIA_SETUPS_PARAMETRICOS.md
+
+Documentação específica dos notebooks:
+
+    vision/cylinders_detect/classic_vision/README.md
+    jet_automation/simulation/firefighting_simulator/README.md
+
+Use GUIA_USO_LOCAL.md para instalar o projeto em outro computador.
+Use INSTALACAO_DADOS.md para instalar dataset e curadoria.
+Use GUIA_SETUPS_PARAMETRICOS.md para aprender a exportar setups locais como setups oficiais compartilhados pelo GitHub.
