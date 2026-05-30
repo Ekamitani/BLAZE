@@ -162,3 +162,17 @@ Para sobrescrever intencionalmente um setup oficial existente:
 Para detalhes completos, consulte:
 
     GUIA_SETUPS_PARAMETRICOS.md
+
+## Guia de navegação e contribuição
+
+Para saber qual documentação ler em cada situação, consulte:
+
+    GUIA_NAVEGACAO_PROJETO.md
+
+Para contribuir com código ou documentação, consulte:
+
+    CONTRIBUTING.md
+
+Pull Requests usam o template em:
+
+    .github/pull_request_template.md
