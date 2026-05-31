@@ -1,6 +1,6 @@
 # Instalação dos dados do projeto BLAZE
 
-Este guia explica como instalar os dados externos necessários para executar o notebook de detecção clássica de cilindros.
+Este guia explica como instalar os dados externos necessários para executar os módulos de detecção de cilindros do BLAZE, incluindo o detector clássico e o detector YOLO.
 
 Os dados não são enviados ao GitHub porque possuem tamanho elevado. Eles devem ser baixados separadamente e colocados na estrutura esperada pelo projeto.
 
@@ -139,19 +139,27 @@ Se o comando `code` não funcionar, abra o VS Code manualmente e use:
 
     File -> Open Folder -> BLAZE
 
-### 9. Executar o notebook de cilindros
+### 9. Executar os notebooks de cilindros
 
-Abra:
+O mesmo dataset externo é usado pelos dois módulos de detecção de cilindros:
+
+Detector clássico:
 
     vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+
+Detector YOLO:
+
+    vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo.ipynb
 
 Selecione o kernel:
 
     Python (BLAZE)
 
-Na célula de caminhos, deve aparecer:
+Nas células de verificação de caminhos, o dataset deve ser encontrado em:
 
-    Dataset encontrado.
+    vision/datasets/cylinders/CylinDeRS-1/
+
+Esse dataset não deve ser enviado ao GitHub. Ele é instalado externamente a partir dos arquivos indicados neste guia.
 
 Na célula de seleção manual, o esperado é algo próximo de:
 
