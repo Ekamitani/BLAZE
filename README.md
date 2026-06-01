@@ -105,12 +105,42 @@ Para executar o projeto em outro computador usando Visual Studio Code, consulte:
 GUIA_USO_LOCAL.md
 ~~~
 
+## Módulo YOLO de cilindros industriais
+
+O projeto inclui um módulo YOLO para detecção de cilindros industriais.
+
+Notebook principal:
+
+~~~text
+vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo.ipynb
+~~~
+
+Guia específico do módulo:
+
+~~~text
+vision/cylinders_detect/YOLO/README.md
+~~~
+
+O notebook permite usar peso oficial treinado pela GitHub Release, sem necessidade de treinar novamente. Também permite treinamento, continuação de treinamento, inferência em imagens, vídeos salvos e webcam local no VS Code.
+
+Os pesos oficiais do YOLO são disponibilizados pela release:
+
+~~~text
+v0.2.0-yolo-cylinders
+~~~
+
 ## Notebooks principais
 
 Detector clássico de cilindros:
 
 ~~~text
 vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+~~~
+
+Detector YOLO de cilindros:
+
+~~~text
+vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo.ipynb
 ~~~
 
 Simulador de atuação do jato de água:
