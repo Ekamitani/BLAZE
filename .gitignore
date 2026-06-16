@@ -44,3 +44,11 @@ vision/datasets/cylinders/*
 
 vision/datasets/fire/*
 !vision/datasets/fire/.gitkeep
+
+# Permite versionar setups paramétricos selecionados do detector clássico
+!vision/parameters_setups/user/cylinders_detect/
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_user.json
+
+# Permite versionar setups paramétricos selecionados do detector clássico
+!vision/parameters_setups/user/cylinders_detect/
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_user.json
