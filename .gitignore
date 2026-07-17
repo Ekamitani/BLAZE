@@ -7,6 +7,7 @@ env/
 
 # Jupyter
 .ipynb_checkpoints/
+*.ipynb.bak
 
 # Resultados gerados
 vision/results/*
@@ -18,11 +19,22 @@ jet_automation/results/*
 # Setups locais dos usuários
 vision/parameters_setups/user/*
 !vision/parameters_setups/user/.gitkeep
+!vision/parameters_setups/user/cylinders_detect/
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_v2_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_refinamento_expansao_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_convencional_modelo_v2_compara_corrigido_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_convencional_modelo_v2_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_convencional_sliders_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_yolo_runtime_user.json
+!vision/parameters_setups/user/cylinders_detect/setups_parametricos_yolo_user.json
 
 jet_automation/parameters_setups/user/*
 !jet_automation/parameters_setups/user/.gitkeep
 
-# Modelos treinados grandes
+vision/fire_detect/fire_monitor_RGB_monocular/parameters_setups/user/
+
+# Modelos treinados
 *.pt
 *.pth
 *.onnx
@@ -30,9 +42,10 @@ jet_automation/parameters_setups/user/*
 *.weights
 *.h5
 
-# Arquivos temporários
+# Arquivos temporários e compilados
 *.tmp
 *.log
+*.hex
 
 # Sistema operacional
 .DS_Store
@@ -45,10 +58,44 @@ vision/datasets/cylinders/*
 vision/datasets/fire/*
 !vision/datasets/fire/.gitkeep
 
-# Permite versionar setups paramétricos selecionados do detector clássico
-!vision/parameters_setups/user/cylinders_detect/
-!vision/parameters_setups/user/cylinders_detect/setups_parametricos_user.json
+# Dados e saídas locais — detecção de fogo RGB
+vision/fire_detect/fire_monitor_RGB_monocular/datasets/
+vision/fire_detect/fire_monitor_RGB_monocular/runs/
+vision/fire_detect/fire_monitor_RGB_monocular/videos_input/
+vision/fire_detect/fire_monitor_RGB_monocular/outputs/
+vision/fire_detect/fire_monitor_RGB_monocular/captures/
 
-# Permite versionar setups paramétricos selecionados do detector clássico
-!vision/parameters_setups/user/cylinders_detect/
-!vision/parameters_setups/user/cylinders_detect/setups_parametricos_user.json
+# Backups — automação térmica/estéreo
+vision/fire_detect/jet_automation/backup/
+
+# Arquivos temporários do VS Code
+.vscode/*.save
+
+# Artefatos selecionados — detector clássico de cilindros
+!vision/results/classical_cylinder_detector/
+vision/results/classical_cylinder_detector/*
+!vision/results/classical_cylinder_detector/modelo_hog_svm_cilindros_v2.joblib
+!vision/results/classical_cylinder_detector/metadata_modelo_v2.json
+!vision/results/classical_cylinder_detector/historico_treinos_v2.csv
+!vision/results/classical_cylinder_detector/imagens_selecionadas_treino.json
+!vision/results/classical_cylinder_detector/imagens_selecionadas_teste.json
+!vision/results/classical_cylinder_detector/imagens_zoomout_treino.json
+!vision/results/classical_cylinder_detector/imagens_zoomout_teste.json
+!vision/results/classical_cylinder_detector/dataset_zoomout_manifest.json
+!vision/results/classical_cylinder_detector/zoomout_config.json
+
+# Artefatos selecionados — detector YOLO de cilindros
+!vision/results/yolo_cylinder_detector/
+vision/results/yolo_cylinder_detector/*
+!vision/results/yolo_cylinder_detector/weights/
+vision/results/yolo_cylinder_detector/weights/*
+!vision/results/yolo_cylinder_detector/weights/yolo_cylinders_best.pt
+!vision/results/yolo_cylinder_detector/weights/yolo_cylinders_best.sha256
+!vision/results/yolo_cylinder_detector/historico_metricas_treinos_yolo.csv
+!vision/results/yolo_cylinder_detector/historico_metricas_yolo.csv
+!vision/results/yolo_cylinder_detector/historico_treinos_yolo.csv
+!vision/results/yolo_cylinder_detector/resumo_yolo_ultima_validacao.csv
+!vision/results/yolo_cylinder_detector/yolov8n_cilindros_blaze_v1_registro.json
+
+# Setup clássico sem referência direta nos notebooks atuais
+vision/parameters_setups/user/cylinders_detect/setups_parametricos_v2_margem_fixa_user.json

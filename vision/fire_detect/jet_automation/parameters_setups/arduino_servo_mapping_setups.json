@@ -1,0 +1,164 @@
+{
+  "default": {
+    "serial_port": "/dev/ttyACM0",
+    "serial_baud": 9600,
+    "image_width": 640,
+    "image_height": 480,
+    "fps": 30,
+    "loop_interval": 0.05,
+    "target_source": "aim_pt",
+    "deadband": 0.5,
+    "pressure_calib": 22.0,
+    "send_during_camera": true,
+    "points": {
+      "top_left": {
+        "image": [
+          0.0,
+          0.0
+        ],
+        "servo": [
+          40.0,
+          40.0
+        ]
+      },
+      "top_right": {
+        "image": [
+          640.0,
+          0.0
+        ],
+        "servo": [
+          140.00000000000003,
+          40.0
+        ]
+      },
+      "bottom_left": {
+        "image": [
+          0.0,
+          480.0
+        ],
+        "servo": [
+          40.0,
+          140.00000000000003
+        ]
+      }
+    }
+  },
+  "teste_1": {
+    "serial_port": "/dev/ttyACM1",
+    "serial_baud": 115200,
+    "image_width": 640,
+    "image_height": 480,
+    "fps": 30,
+    "loop_interval": 0.1,
+    "target_source": "aim_pt",
+    "deadband": 1.0,
+    "pressure_calib": 22.0,
+    "send_during_camera": true,
+    "cell3_parametric_setup": "7_preto_branco_amarelo_vermelho_escuro_1",
+    "initial_position": {
+      "servo": [
+        90.0,
+        90.0
+      ]
+    },
+    "planner_watchdog": {
+      "enabled": false,
+      "stuck_frames": 90,
+      "mode": "conservador_sem_reset_automatico"
+    },
+    "points": {
+      "top_left": {
+        "image": [
+          0.0,
+          0.0
+        ],
+        "servo": [
+          120.0,
+          60.0
+        ]
+      },
+      "top_right": {
+        "image": [
+          640.0,
+          0.0
+        ],
+        "servo": [
+          60.0,
+          60.0
+        ]
+      },
+      "bottom_left": {
+        "image": [
+          0.0,
+          480.0
+        ],
+        "servo": [
+          120.0,
+          120.0
+        ]
+      }
+    }
+  },
+  "teste_2": {
+    "serial_port": "/dev/ttyACM0",
+    "serial_baud": 115200,
+    "image_width": 640,
+    "image_height": 480,
+    "fps": 30,
+    "loop_interval": 0.1,
+    "target_source": "aim_pt",
+    "deadband": 1.0,
+    "pressure_calib": 22.0,
+    "send_during_camera": true,
+    "cell3_parametric_setup": "7_preto_branco_amarelo_vermelho_escuro_1",
+    "initial_position": {
+      "servo": [
+        90.0,
+        90.0
+      ]
+    },
+    "camera_recovery": {
+      "auto_recover": true,
+      "reset_when_no_focus": true,
+      "replan_when_focus_returns": true
+    },
+    "human_safety": {
+      "enabled": true,
+      "model": "yolov8n.pt",
+      "confidence": 0.45,
+      "check_every": 3
+    },
+    "points": {
+      "top_left": {
+        "image": [
+          0.0,
+          0.0
+        ],
+        "servo": [
+          109.5,
+          71.0
+        ]
+      },
+      "top_right": {
+        "image": [
+          640.0,
+          0.0
+        ],
+        "servo": [
+          50.5,
+          70.50000000000001
+        ]
+      },
+      "bottom_left": {
+        "image": [
+          0.0,
+          480.0
+        ],
+        "servo": [
+          114.0,
+          106.5
+        ]
+      }
+    }
+  }
+}

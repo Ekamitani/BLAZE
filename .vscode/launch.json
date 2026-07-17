@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BLAZE - Runtime clássico V2",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/vision/cylinders_detect/classic_vision/_runtime_classico_v2_core.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "--trained-params",
+        "--no-controls",
+        "--width",
+        "320",
+        "--height",
+        "240",
+        "--detect-every",
+        "10",
+        "--max-rois-runtime",
+        "80",
+        "--score-min",
+        "-5",
+        "--max-det",
+        "20"
+      ]
+    }
+  ]
+}

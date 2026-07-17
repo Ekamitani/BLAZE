@@ -1,0 +1,39 @@
+{
+  "versao": "setups_parametricos_convencional_modelo_v2_compara_corrigido",
+  "descricao": "Janela deslizante reaproveitando o modelo HOG/SVM V2. Caminhos corrigidos para comparar com historico_treinos_v2.csv do detector customizado.",
+  "setups": {
+    "CONV_V2_COMP": {
+      "nome": "Convencional janela deslizante | mesmo modelo V2 | compara com último V2",
+      "data_hora": "2026-06-28",
+      "params": {
+        "clahe_ativo": true,
+        "clahe_clip": 1.5,
+        "clahe_grid": 16,
+        "bilateral_d": 5,
+        "bilateral_sigma_color": 60.0,
+        "bilateral_sigma_space": 50.0,
+        "canny_sigma": 0.33,
+        "canny_aperture": 3,
+        "canny_l2gradient": true,
+        "hog_input": "bilateral",
+        "hog_resize_w": 64,
+        "hog_resize_h": 160,
+        "hog_orientations": 16,
+        "hog_pixels_per_cell": 4,
+        "hog_cells_per_block": 2,
+        "det_score_min": 0.1999999999999993,
+        "det_nms_iou": 0.39999999999999997,
+        "det_iou_thr": 0.25,
+        "det_max_det": 15,
+        "det_eval_max_images": 30,
+        "slide_win_w": 64,
+        "slide_win_h": 160,
+        "slide_scales": "0.75,1.0,1.25,1.5,2.0",
+        "slide_step_px": 32,
+        "slide_max_windows": 5000,
+        "usar_modelo_v2": true,
+        "comparar_com_historico_v2": true
+      }
+    }
+  }
+}

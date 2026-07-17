@@ -1,0 +1,8 @@
+{
+  "default": {
+    "watershed_threshold": 0.42,
+    "z_multiplier": 10.0,
+    "z_outlier_pct": 20.0,
+    "z_merge_threshold": 5.0
+  }
+}

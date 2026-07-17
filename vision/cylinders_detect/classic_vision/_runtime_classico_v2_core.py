@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Runtime em VS Code para detecção clássica de cilindros com webcam.
+Runtime V2 em VS Code para detecção clássica de cilindros com webcam.
 
 Este arquivo executa somente a inferência em tempo real:
 - não treina modelo;
 - não abre painéis Jupyter;
 - carrega setups JSON salvos no projeto;
 - carrega o modelo HOG/SVM treinado localmente;
-- mostra apenas a BBox final da detecção na tela.
+- mostra apenas a BBox final da detecção na tela;
+- permite ajustar resolução, taxa de atualização e score mínimo por sliders OpenCV.
 
 Uso básico:
-    python vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_webcam_runtime.py
+    python vision/cylinders_detect/classic_vision/_runtime_classico_v2_core.py
 
 Listar setups:
-    python vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_webcam_runtime.py --list-setups
+    python vision/cylinders_detect/classic_vision/_runtime_classico_v2_core.py --list-setups
 
 Escolher setup direto:
-    python vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_webcam_runtime.py --setup S001
+    python vision/cylinders_detect/classic_vision/_runtime_classico_v2_core.py --setup S001
 
 Sair:
     pressione q na janela da webcam.
@@ -36,6 +37,7 @@ import math
 import hashlib
 import traceback
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -89,16 +91,16 @@ RESULTS_DIR = VISION_RESULTS_DIR
 CLASSICAL_DIR = RESULTS_DIR / 'classical_cylinder_detector'
 CLASSICAL_DIR.mkdir(parents=True, exist_ok=True)
 
-MODEL_PATH = CLASSICAL_DIR / 'modelo_hog_svm_cilindros.joblib'
-METADATA_PATH = CLASSICAL_DIR / 'metadata_modelo.json'
-HISTORICO_PATH = CLASSICAL_DIR / 'historico_treinos.csv'
+MODEL_PATH = CLASSICAL_DIR / 'modelo_hog_svm_cilindros_v2.joblib'
+METADATA_PATH = CLASSICAL_DIR / 'metadata_modelo_v2.json'
+HISTORICO_PATH = CLASSICAL_DIR / 'historico_treinos_v2.csv'
 HISTORY_PATH = HISTORICO_PATH
 
-OFFICIAL_PARAM_SETUPS_PATH = VISION_OFFICIAL_SETUPS_DIR / 'cylinders_detect' / 'setups_parametricos.json'
-USER_PARAM_SETUPS_PATH = VISION_USER_SETUPS_DIR / 'cylinders_detect' / 'setups_parametricos_user.json'
+OFFICIAL_PARAM_SETUPS_PATH = VISION_OFFICIAL_SETUPS_DIR / 'cylinders_detect' / 'setups_parametricos_v2.json'
+USER_PARAM_SETUPS_PATH = VISION_USER_SETUPS_DIR / 'cylinders_detect' / 'setups_parametricos_v2_user.json'
 
-OFFICIAL_REFINE_SETUPS_PATH = VISION_OFFICIAL_SETUPS_DIR / 'cylinders_detect' / 'setups_refinamento_expansao.json'
-USER_REFINE_SETUPS_PATH = VISION_USER_SETUPS_DIR / 'cylinders_detect' / 'setups_refinamento_expansao_user.json'
+OFFICIAL_REFINE_SETUPS_PATH = VISION_OFFICIAL_SETUPS_DIR / 'cylinders_detect' / 'setups_refinamento_expansao_v2_nao_usado.json'
+USER_REFINE_SETUPS_PATH = VISION_USER_SETUPS_DIR / 'cylinders_detect' / 'setups_refinamento_expansao_v2_nao_usado_user.json'
 
 DATASET_DIR = VISION_DATASETS_DIR / 'cylinders' / 'CylinDeRS-1'
 TRAIN_IMG_DIR = DATASET_DIR / 'train' / 'images'
@@ -335,7 +337,7 @@ def filtrar_componentes_borda(edge_map, p):
 
     Objetivo:
         - preservar o Canny completo como diagnóstico visual;
-        - gerar um segundo mapa mais limpo para Hough e detecção de arcos;
+        - gerar um segundo mapa mais limpo para Hough e geração de ROIs;
         - reduzir falsas bordas antes da formulação geométrica.
 
     Critérios de permanência:
@@ -392,7 +394,7 @@ def aplicar_preprocessamento(img_bgr, p):
 
     Mapas produzidos:
         - Mapa A: Canny completo, usado para diagnóstico visual;
-        - Mapa B: Canny filtrado, usado para Hough e detecção de arcos.
+        - Mapa B: Canny filtrado, usado para Hough e geração de ROIs.
     """
     rgb = bgr_para_rgb(img_bgr)
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
@@ -697,6 +699,51 @@ def extrair_hog_de_imagem(img_bgr, p):
     )
 
     return features.astype(np.float32)
+
+
+def n_features_esperado_modelo(clf):
+    """Retorna o número de atributos esperado pelo modelo treinado, quando disponível."""
+    if clf is None:
+        return None
+
+    candidatos = []
+    if hasattr(clf, "named_steps"):
+        candidatos.extend([
+            clf.named_steps.get("standardscaler"),
+            clf.named_steps.get("scaler"),
+            clf.named_steps.get("linearsvc"),
+            clf.named_steps.get("svc"),
+        ])
+    if hasattr(clf, "steps"):
+        candidatos.extend([step for _, step in clf.steps])
+    candidatos.append(clf)
+
+    for obj in candidatos:
+        if obj is None:
+            continue
+        n = getattr(obj, "n_features_in_", None)
+        if n is not None:
+            return int(n)
+    return None
+
+
+def validar_features_modelo(feat, clf, contexto="ROI"):
+    """Valida compatibilidade entre extrator HOG atual e modelo treinado.
+
+    A correção limpa é retreinar o modelo quando houver incompatibilidade.
+    Não preenche, corta ou mascara atributos, pois isso mistura versões de treino/runtime.
+    """
+    feat = np.asarray(feat, dtype=np.float32).reshape(1, -1)
+    esperado = n_features_esperado_modelo(clf)
+    atual = int(feat.shape[1])
+
+    if esperado is not None and atual != esperado:
+        raise RuntimeError(
+            f"{contexto}: incompatibilidade de features HOG/SVM. "
+            f"O runtime gerou {atual} atributos, mas o modelo espera {esperado}. "
+            "Retreine o modelo no notebook atual para alinhar extrator e classificador."
+        )
+    return feat
 
 
 def extrair_hog_visualizacao_de_imagem(img_bgr, p):
@@ -1574,20 +1621,20 @@ def avaliar_detector_completo(df, clf, p, status_callback=None):
 
 
 # ------------------------------------------------------------
-# Visualizações atualizadas: ROI original, ROI refinada e arcos encontrados
+# Visualizações atualizadas: ROI original, ROI refinada e retas encontradas
 # ------------------------------------------------------------
 COLOR_LINE_CANDIDATE = (0, 220, 255)  # ciano: retas usadas para formar a ROI candidata
 
 
 # ============================================================
-# 8B. Núcleo simplificado: pares paralelos, arcos independentes e BBox automática
+# 8B. Núcleo V2: ROIs somente por pares de retas paralelas
 # ============================================================
 # Estratégia desta versão:
 # 1) detectar retas por Hough;
 # 2) unir segmentos colineares e filtrar retas por geometria + suporte real;
 # 3) formar ROIs somente com pares de retas paralelas;
-# 4) procurar contornos curvos independentes em janelas acima/abaixo dos pares;
-# 5) expandir automaticamente a BBox até os arcos detectados ou por proporção fixa.
+# 4) calcular a BBox a partir do par de retas, com margem fixa em pixels;
+# 5) pontuar cada ROI por overlap, similaridade angular e proximidade da razão L/W ao alvo ajustável.
 
 # ------------------------------------------------------------
 # Geometria básica de retas e caixas orientadas
@@ -1658,13 +1705,6 @@ def _oriented_corners(origin, u, v, tmin, tmax, smin, smax):
     return np.asarray(pts, dtype=np.float32)
 
 
-def _line_points(line):
-    if line is None:
-        return np.empty((0, 2), dtype=float)
-    x1, y1, x2, y2 = map(float, line)
-    return np.array([[x1, y1], [x2, y2]], dtype=float)
-
-
 def _bbox_center(bbox):
     if not _bbox_valida(bbox):
         return np.array([0.0, 0.0], dtype=float)
@@ -1706,7 +1746,7 @@ def unir_segmentos_colineares(lines, p):
         origin = base['center']
         u = base['u'].copy()
         v = base['v'].copy()
-        t1, t2, s0 = _projecoes_linha_em_base(base['line'], origin, u, v)
+        t1, t2, _ = _projecoes_linha_em_base(base['line'], origin, u, v)
         intervalo_atual = [min(t1, t2), max(t1, t2)]
         grupo = [base]
         usados.add(i)
@@ -1740,7 +1780,7 @@ def unir_segmentos_colineares(lines, p):
         smed = float(np.mean(s_vals)) if s_vals else 0.0
         p1 = origin + u * tmin + v * smed
         p2 = origin + u * tmax + v * smed
-        merged.append(tuple(map(int, [round(p1[0]), round(p1[1]), round(p2[0]), round(p2[1])])) )
+        merged.append(tuple(map(int, [round(p1[0]), round(p1[1]), round(p2[0]), round(p2[1])])))
 
     return merged
 
@@ -1831,19 +1871,83 @@ def filtrar_linhas_por_suporte(lines, pre, p):
 # ------------------------------------------------------------
 # Pares paralelos: única fonte de ROIs
 # ------------------------------------------------------------
-def _score_par_simples(a, b, dist, dist_min, dist_max, overlap, gap_axis, angle_diff, pair_tol):
-    len_balance = min(a['length'], b['length']) / max(1e-6, max(a['length'], b['length']))
-    angle_score = 1.0 - min(1.0, angle_diff / max(1e-6, pair_tol))
-    if dist_max <= dist_min:
-        dist_score = 1.0
-    else:
-        center = 0.5 * (dist_min + dist_max)
-        half = 0.5 * (dist_max - dist_min)
-        dist_score = 1.0 - min(1.0, abs(dist - center) / max(1e-6, half))
-        dist_score = 0.25 + 0.75 * dist_score
-    gap_score = 1.0 / (1.0 + max(0.0, gap_axis) / 45.0)
-    axis_score = max(float(overlap), 0.65 * gap_score)
-    return float(0.30 * len_balance + 0.30 * angle_score + 0.25 * axis_score + 0.15 * dist_score)
+def _score_lw_ratio(ratio, target, tol_pct):
+    """Pontua a razão comprimento/largura da ROI em torno de um valor alvo."""
+    ratio = float(ratio)
+    target = max(1e-6, float(target))
+    tol_pct = max(1e-6, float(tol_pct))
+    erro_rel = abs(ratio - target) / target
+    return float(max(0.0, 1.0 - min(1.0, erro_rel / tol_pct)))
+
+
+def _normalizar_pesos_score(p):
+    w_overlap = max(0.0, float(_pget(p, 'pair_score_overlap_weight', 0.45)))
+    w_angle = max(0.0, float(_pget(p, 'pair_score_angle_weight', 0.30)))
+    w_ratio = max(0.0, float(_pget(p, 'pair_score_ratio_weight', 0.25)))
+    s = w_overlap + w_angle + w_ratio
+    if s <= 1e-9:
+        return 0.45, 0.30, 0.25
+    return w_overlap / s, w_angle / s, w_ratio / s
+
+
+def _score_par_v2(overlap, angle_diff, pair_tol, lw_ratio, p):
+    """Score geométrico V2 baseado em overlap, paralelismo e razão comprimento/largura."""
+    overlap_score = float(np.clip(overlap, 0.0, 1.0))
+    angle_score = 1.0 - min(1.0, float(angle_diff) / max(1e-6, float(pair_tol)))
+    ratio_score = _score_lw_ratio(
+        lw_ratio,
+        _pget(p, 'pair_lw_ratio_target', 5.0),
+        _pget(p, 'pair_lw_ratio_tol_pct', 0.60),
+    )
+    w_overlap, w_angle, w_ratio = _normalizar_pesos_score(p)
+    score = w_overlap * overlap_score + w_angle * angle_score + w_ratio * ratio_score
+    return float(np.clip(score, 0.0, 1.0)), {
+        'score_overlap': float(overlap_score),
+        'score_angle': float(angle_score),
+        'score_lw_ratio': float(ratio_score),
+        'lw_ratio': float(lw_ratio),
+        'lw_target': float(_pget(p, 'pair_lw_ratio_target', 5.0)),
+    }
+
+
+def _bbox_par_por_margem_fixa(origin, u, v, tmin, tmax, smin, smax, img_shape, p):
+    """
+    Calcula a BBox do par usando somente as extremidades das duas retas.
+
+    Não há expansão por arcos, reta única ou proporção L/W. A razão L/W continua
+    sendo usada apenas para pontuar a qualidade geométrica do par. A caixa final
+    contém apenas o retângulo orientado definido pelo par de retas, acrescido de
+    uma margem fixa em pixels (`roi_margin_px`).
+    """
+    width = max(1.0, float(smax - smin))
+    base_len = max(1.0, float(tmax - tmin))
+    margin_px = int(_pget(p, 'roi_margin_px', 10))
+
+    # Retângulo orientado estritamente definido pelas extremidades do par.
+    corners = _oriented_corners(
+        origin,
+        u,
+        v,
+        float(tmin),
+        float(tmax),
+        float(smin),
+        float(smax)
+    )
+
+    # A margem é fixa em pixels e aplicada apenas ao converter para BBox no eixo da imagem.
+    bbox = _bbox_axis_from_points(corners, img_shape, margin=margin_px)
+
+    return bbox, corners, {
+        'tmin': float(tmin),
+        'tmax': float(tmax),
+        'smin': float(smin),
+        'smax': float(smax),
+        'base_len': float(base_len),
+        'width': float(width),
+        'fixed_margin_px': int(margin_px),
+        'lw_ratio_base': float(base_len / max(1.0, width)),
+        'lw_ratio_bbox': float(base_len / max(1.0, width)),
+    }
 
 
 def gerar_pares_orientados(lines, img_shape, p, return_debug=False):
@@ -1860,13 +1964,13 @@ def gerar_pares_orientados(lines, img_shape, p, return_debug=False):
         'n_candidatos_par': 0,
     }
 
-    pair_tol = float(_pget(p, 'pair_angle_tol_deg', 8.0))
-    dist_min = float(_pget(p, 'pair_dist_min', 10))
-    dist_max = float(_pget(p, 'pair_dist_max', 120))
-    overlap_min = float(_pget(p, 'pair_overlap_min', 0.25))
-    axis_gap_max = float(_pget(p, 'pair_axis_gap_px', 35))
-    margin = int(_pget(p, 'roi_margin_px', 6))
-    max_rois = int(_pget(p, 'max_rois', 80))
+    pair_tol = float(_pget(p, 'pair_angle_tol_deg', 3.0))
+    dist_min = float(_pget(p, 'pair_dist_min', 30))
+    dist_max = float(_pget(p, 'pair_dist_max', 110))
+    overlap_min = float(_pget(p, 'pair_overlap_min', 0.60))
+    axis_gap_max = float(_pget(p, 'pair_axis_gap_px', 10))
+    max_rois = int(_pget(p, 'max_rois', 50))
+    pair_score_min = float(_pget(p, 'pair_score_min', 0.0))
 
     for i in range(len(infos)):
         a = infos[i]
@@ -1885,6 +1989,7 @@ def gerar_pares_orientados(lines, img_shape, p, return_debug=False):
 
             bt1, bt2, bs0 = _projecoes_linha_em_base(b['line'], origin, u, v)
             bmin, bmax = min(bt1, bt2), max(bt1, bt2)
+
             dist = abs(bs0 - as0)
             if dist < dist_min or dist > dist_max:
                 continue
@@ -1892,6 +1997,7 @@ def gerar_pares_orientados(lines, img_shape, p, return_debug=False):
 
             ov = razao_sobreposicao((amin, amax), (bmin, bmax))
             gap_axis = _interval_gap(amin, amax, bmin, bmax)
+
             if ov < overlap_min and gap_axis > axis_gap_max:
                 continue
             if ov >= overlap_min:
@@ -1900,686 +2006,86 @@ def gerar_pares_orientados(lines, img_shape, p, return_debug=False):
             tmin = min(amin, bmin)
             tmax = max(amax, bmax)
             smin, smax = sorted([as0, bs0])
-            width = max(1.0, smax - smin)
-            # Margem lateral fixa, automática, sem slider próprio de expansão.
-            lateral_extra = width * float(_pget(p, 'bbox_auto_width_extra_pct', 0.12))
-            smin2, smax2 = smin - lateral_extra, smax + lateral_extra
 
-            corners = _oriented_corners(origin, u, v, tmin, tmax, smin2, smax2)
-            bbox = _bbox_axis_from_points(corners, img_shape, margin=margin)
+            width_pair = max(1.0, smax - smin)
+            base_len = max(1.0, tmax - tmin)
+            lw_ratio = base_len / width_pair
+
+            score, score_parts = _score_par_v2(ov, adiff, pair_tol, lw_ratio, p)
+            if score < pair_score_min:
+                continue
+
+            bbox, corners, bbox_info = _bbox_par_por_margem_fixa(
+                origin, u, v, tmin, tmax, smin, smax, img_shape, p
+            )
             if bbox is None:
                 continue
+
             x1, y1, x2, y2 = bbox
-            score = _score_par_simples(a, b, dist, dist_min, dist_max, ov, gap_axis, adiff, pair_tol)
+            roi_w = max(1, x2 - x1)
+            roi_h = max(1, y2 - y1)
+            aspect = roi_h / roi_w
+
+            if not (float(_pget(p, 'roi_aspect_min', 0.3)) <= aspect <= float(_pget(p, 'roi_aspect_max', 15.0))):
+                continue
+
             candidatos.append({
                 'line1': a['line'], 'line2': b['line'],
                 'line_base': a['line'], 'line_oposta': b['line'],
-                'bbox': bbox,
+                'bbox': tuple(map(int, bbox)),
                 'oriented_corners': corners,
                 'origin': origin, 'u': u, 'v': v,
-                'tmin': float(tmin), 'tmax': float(tmax),
-                'smin': float(smin2), 'smax': float(smax2),
-                'distance': float(dist), 'overlap': float(ov), 'gap_axis': float(gap_axis),
-                'angle_diff': float(adiff), 'angle': float(a['angle']),
-                'area': int((x2 - x1) * (y2 - y1)),
-                'aspect': float((y2 - y1) / max(1, x2 - x1)),
+                'tmin': float(bbox_info['tmin']), 'tmax': float(bbox_info['tmax']),
+                'smin': float(bbox_info['smin']), 'smax': float(bbox_info['smax']),
+                'distance': float(dist),
+                'overlap': float(ov),
+                'gap_axis': float(gap_axis),
+                'angle_diff': float(adiff),
+                'angle': float(a['angle']),
+                'area': int(roi_w * roi_h),
+                'aspect': float(aspect),
+                'lw_ratio': float(lw_ratio),
+                'lw_ratio_bbox': float(bbox_info['lw_ratio_bbox']),
                 'score_pair': float(score),
-                'tipo': 'par_orientado'
+                'score_roi': float(score),
+                'roi_score': float(score),
+                'roi_evidence_score': float(score),
+                'roi_evidence_class': '2_retas_paralelas',
+                'tipo': 'par_retas_v2',
+                **score_parts,
+                **bbox_info,
             })
 
-    candidatos = sorted(candidatos, key=lambda c: (c['score_pair'], c['overlap'], c['area']), reverse=True)[:max_rois]
+    candidatos = sorted(
+        candidatos,
+        key=lambda c: (c['score_pair'], c['overlap'], c['score_lw_ratio'], -c['angle_diff'], c['area']),
+        reverse=True
+    )[:max_rois]
+
     dbg['n_candidatos_par'] = len(candidatos)
     return (candidatos, dbg) if return_debug else candidatos
 
 
-# ------------------------------------------------------------
-# Arcos independentes por contornos curvos em janelas locais
-# ------------------------------------------------------------
-def _edge_points(edges):
-    ys, xs = np.nonzero(edges)
-    if len(xs) == 0:
-        return np.empty((0, 2), dtype=float)
-    return np.column_stack([xs, ys]).astype(float)
-
-
-def _contour_length(pts):
-    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
-    if len(pts) < 2:
-        return 0.0
-    return float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
-
-
-
-def _angle_diff_rad(a, b):
-    """Diferença angular assinada no intervalo [-pi, pi]."""
-    return float(math.atan2(math.sin(float(a) - float(b)), math.cos(float(a) - float(b))))
-
-
-def _mean_angle_rad(angles):
-    """Média circular de ângulos em radianos."""
-    angles = np.asarray(angles, dtype=float).ravel()
-    if angles.size == 0:
-        return 0.0
-    sx = float(np.mean(np.cos(angles)))
-    sy = float(np.mean(np.sin(angles)))
-    return float(math.atan2(sy, sx))
-
-
-def _smooth_tangent_angles(pts, half_window=3):
-    """Estima direções tangentes suavizadas ao longo do contorno.
-
-    Em vez de usar apenas o gradiente/segmento entre pixels vizinhos, usa
-    uma pequena vizinhança. Isso evita que a direção inicial/final da curva
-    seja definida por um único pixel ruidoso.
-    """
-    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
-    n = len(pts)
-    if n < 2:
-        return np.empty(0, dtype=float)
-    half_window = int(max(1, half_window))
-    angles = []
-    for i in range(n):
-        i0 = max(0, i - half_window)
-        i1 = min(n - 1, i + half_window)
-        if i1 == i0:
-            continue
-        vec = pts[i1] - pts[i0]
-        if np.linalg.norm(vec) > 1e-6:
-            angles.append(math.atan2(float(vec[1]), float(vec[0])))
-    return np.asarray(angles, dtype=float)
-
-
-def _curvature_metrics(pts, angle_window=7):
-    """Mede a curvatura de um trecho candidato.
-
-    Medidas usadas:
-    - sagitta_ratio: desvio máximo do contorno em relação à reta entre início e fim.
-      Esta é a curvatura geométrica principal e substitui a antiga métrica
-      separada de "não retilinearidade".
-    - angle_span_deg: diferença entre a direção média do início e a direção média
-      do fim do trecho. Usa vários gradientes locais, não apenas o primeiro e o último.
-    - max_local_angle_jump_deg: maior salto angular local. Rejeita cantos vivos,
-      porque neles a direção muda quase toda em um único ponto.
-    """
-    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
-    if len(pts) < 5:
-        return {
-            'length': 0.0,
-            'sagitta_ratio': 0.0,
-            'angle_span_deg': 0.0,
-            'max_local_angle_jump_deg': 0.0,
-        }
-
-    length = _contour_length(pts)
-    chord = float(np.linalg.norm(pts[-1] - pts[0]))
-    if chord < 1e-6 or length < 1e-6:
-        return {
-            'length': float(length),
-            'sagitta_ratio': 0.0,
-            'angle_span_deg': 0.0,
-            'max_local_angle_jump_deg': 0.0,
-        }
-
-    # Curvatura geométrica: quanto o contorno se afasta da reta início-fim.
-    a = pts[0]
-    b = pts[-1]
-    ab = b - a
-    abn = ab / max(1e-6, np.linalg.norm(ab))
-    rel = pts - a.reshape(1, 2)
-    perp = rel - (rel @ abn).reshape(-1, 1) * abn.reshape(1, 2)
-    max_dev = float(np.max(np.linalg.norm(perp, axis=1)))
-    sagitta_ratio = max_dev / max(1.0, chord)
-
-    # Direções tangentes suavizadas. O número de amostras usadas no início/fim
-    # é intencionalmente interno para não aumentar a interface.
-    angles = _smooth_tangent_angles(pts, half_window=3)
-    if len(angles) >= 2:
-        k = int(max(1, min(angle_window, len(angles) // 2 if len(angles) >= 4 else len(angles))))
-        ang_ini = _mean_angle_rad(angles[:k])
-        ang_fim = _mean_angle_rad(angles[-k:])
-        angle_span_deg = abs(math.degrees(_angle_diff_rad(ang_fim, ang_ini)))
-
-        jumps = []
-        for a0, a1 in zip(angles[:-1], angles[1:]):
-            jumps.append(abs(math.degrees(_angle_diff_rad(a1, a0))))
-        max_local_angle_jump_deg = float(max(jumps)) if jumps else 0.0
-    else:
-        angle_span_deg = 0.0
-        max_local_angle_jump_deg = 0.0
-
-    return {
-        'length': float(length),
-        'sagitta_ratio': float(sagitta_ratio),
-        'angle_span_deg': float(angle_span_deg),
-        'max_local_angle_jump_deg': float(max_local_angle_jump_deg),
-    }
-
-
-def _gradiente_medio_pontos(pts, grad_map):
-    if grad_map is None or pts is None or len(pts) == 0:
-        return 1.0
-    h, w = grad_map.shape[:2]
-    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
-    xs = np.clip(np.round(pts[:, 0]).astype(int), 0, w - 1)
-    ys = np.clip(np.round(pts[:, 1]).astype(int), 0, h - 1)
-    vals = grad_map[ys, xs]
-    if vals.size == 0:
-        return 0.0
-    return float(np.mean(vals))
-
-
-def _segmentar_trechos_curvos(pts, p, grad_map=None):
-    """Extrai trechos localmente curvos de um contorno.
-
-    A propagação do trecho candidato é limitada pelo comprimento máximo.
-    Depois o trecho é aceito ou rejeitado por critérios de forma:
-    curvatura geométrica, variação angular total, salto angular local e
-    gradiente médio. Isso evita aceitar contornos longos com parte reta e
-    evita classificar cantos vivos como arcos suaves.
-    """
-    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
-    n = len(pts)
-    if n < 6:
-        return []
-
-    min_len = float(_pget(p, 'arc_min_length_px', 18))
-    max_len = float(_pget(p, 'arc_max_length_px', 90))
-    min_sag = float(_pget(p, 'arc_min_sagitta_ratio', 0.05))
-    min_ang = float(_pget(p, 'arc_min_angle_span_deg', 18.0))
-    max_jump = float(_pget(p, 'arc_max_local_angle_jump_deg', 35.0))
-    min_grad = float(_pget(p, 'arc_min_grad_mean', 0.12))
-    angle_window = int(_pget(p, 'arc_angle_mean_window', 7))
-
-    # Comprimento acumulado ao longo do contorno.
-    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    cum = np.concatenate([[0.0], np.cumsum(seg)])
-    total = float(cum[-1])
-    if total < min_len:
-        return []
-
-    # Passo adaptativo para não testar janelas demais.
-    step = max(2, int(n / 80))
-    candidatos = []
-
-    for i in range(0, n - 5, step):
-        # O final do trecho é limitado somente por comp. máx.
-        jmax = int(np.searchsorted(cum, cum[i] + max_len, side='right'))
-        jmax = min(jmax, n - 1)
-        if jmax <= i + 4:
-            continue
-
-        finais = list(range(i + 5, jmax + 1, max(2, step)))
-        if jmax not in finais:
-            finais.append(jmax)
-
-        for j in finais:
-            length_ij = float(cum[j] - cum[i])
-            if length_ij < min_len:
-                continue
-            if length_ij > max_len:
-                break
-
-            trecho = pts[i:j + 1]
-            metrics = _curvature_metrics(trecho, angle_window=angle_window)
-
-            if metrics['length'] < min_len:
-                continue
-            if metrics['sagitta_ratio'] < min_sag:
-                continue
-            if metrics['angle_span_deg'] < min_ang:
-                continue
-            if metrics['max_local_angle_jump_deg'] > max_jump:
-                continue
-
-            grad_mean = _gradiente_medio_pontos(trecho, grad_map)
-            if grad_mean < min_grad:
-                continue
-
-            score = (
-                0.25 * min(1.0, metrics['length'] / max(min_len, 1.0)) +
-                0.30 * min(1.0, metrics['sagitta_ratio'] / max(min_sag, 1e-6)) +
-                0.22 * min(1.0, metrics['angle_span_deg'] / max(min_ang, 1e-6)) +
-                0.18 * min(1.0, grad_mean / max(min_grad, 1e-6)) +
-                0.05 * max(0.0, 1.0 - metrics['max_local_angle_jump_deg'] / max(max_jump, 1e-6))
-            )
-            candidatos.append({
-                'pts': trecho,
-                'score': float(np.clip(score, 0.0, 1.0)),
-                'grad_mean': float(grad_mean),
-                **metrics,
-            })
-
-    # Remove trechos muito sobrepostos no próprio contorno, mantendo os melhores.
-    candidatos = sorted(candidatos, key=lambda c: c['score'], reverse=True)
-    saida = []
-    for c in candidatos:
-        if len(saida) >= int(_pget(p, 'arc_max_segments_per_window', 3)):
-            break
-        pc = c['pts']
-        cc = np.mean(pc, axis=0)
-        repetido = False
-        for s in saida:
-            cs = np.mean(s['pts'], axis=0)
-            if np.linalg.norm(cc - cs) < 0.20 * max(min_len, 1.0):
-                repetido = True
-                break
-        if not repetido:
-            saida.append(c)
-    return saida
-
-
-def _mascara_janela_arco(edge_map, origin, u, v, tmin, tmax, smin, smax, lado, p):
-    h, w = edge_map.shape[:2]
-    edge_pts = _edge_points(edge_map)
-    if len(edge_pts) == 0:
-        return np.zeros_like(edge_map, dtype=np.uint8)
-
-    rel = edge_pts - origin.reshape(1, 2)
-    ts = rel @ u
-    ss = rel @ v
-
-    base_len = max(1.0, float(tmax - tmin))
-    width = max(1.0, float(smax - smin))
-    search_len = base_len * float(_pget(p, 'arc_window_factor', 0.45))
-    lateral_extra = width * float(_pget(p, 'arc_window_s_factor', 0.35))
-    margin_t = max(4.0, 0.06 * base_len)
-
-    if lado == 'top':
-        mask_t = (ts >= tmax - margin_t) & (ts <= tmax + search_len)
-    else:
-        mask_t = (ts >= tmin - search_len) & (ts <= tmin + margin_t)
-    mask_s = (ss >= smin - lateral_extra) & (ss <= smax + lateral_extra)
-    pts = edge_pts[mask_t & mask_s]
-
-    mask = np.zeros((h, w), dtype=np.uint8)
-    if len(pts):
-        xs = np.clip(np.round(pts[:, 0]).astype(int), 0, w - 1)
-        ys = np.clip(np.round(pts[:, 1]).astype(int), 0, h - 1)
-        mask[ys, xs] = 255
-    # Sem operação adicional: os arcos são avaliados diretamente no Mapa B.
-    return mask
-
-
-
-def detectar_arco_curvo_na_janela(edge_map, origin, u, v, tmin, tmax, smin, smax, lado, p, grad_map=None):
-    """Detecta arco como trecho localmente curvo no Mapa B.
-
-    O contorno inteiro não é aceito automaticamente. A função procura
-    segmentos curvos locais, com gradiente suficiente, comprimento limitado
-    e variação real de direção.
-    """
-    mask = _mascara_janela_arco(edge_map, origin, u, v, tmin, tmax, smin, smax, lado, p)
-    contornos, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    if not contornos:
-        return {'ok': False, 'score': 0.0, 'contour': None, 'pts': None, 'reason': 'sem_contorno'}
-
-    max_candidates = int(_pget(p, 'arc_max_contours_per_window', 60))
-    melhores = []
-    for cnt in sorted(contornos, key=lambda c: max(cv2.arcLength(c, False), cv2.contourArea(c)), reverse=True)[:max_candidates]:
-        pts = cnt.reshape(-1, 2).astype(float)
-        if len(pts) < 6:
-            continue
-        segmentos = _segmentar_trechos_curvos(pts, p, grad_map=grad_map)
-        for seg in segmentos:
-            melhores.append(seg)
-
-    if not melhores:
-        return {'ok': False, 'score': 0.0, 'contour': None, 'pts': None, 'reason': 'sem_trecho_curvo_valido'}
-
-    melhor = sorted(melhores, key=lambda x: x['score'], reverse=True)[0]
-    pts = np.asarray(melhor['pts'], dtype=float)
-    contour = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
-    return {
-        'ok': True,
-        'score': float(np.clip(melhor['score'], 0.0, 1.0)),
-        'contour': contour,
-        'pts': pts,
-        'method': 'curved_segment_gradient',
-        'grad_mean': float(melhor.get('grad_mean', 0.0)),
-        'length': float(melhor.get('length', 0.0)),
-        'sagitta_ratio': float(melhor.get('sagitta_ratio', 0.0)),
-        'angle_span_deg': float(melhor.get('angle_span_deg', 0.0)),
-        'max_local_angle_jump_deg': float(melhor.get('max_local_angle_jump_deg', 0.0)),
-    }
-
-
-
-def detectar_arcos_para_par(pre, candidato, p):
-    # Curvas/arcos sempre são buscados no Mapa B: Canny filtrado para Hough e detecção de arcos.
-    edge_map = pre.get('canny_hough', pre.get('canny_full'))
-    grad_map = pre.get('grad_mag')
-    origin = np.asarray(candidato['origin'], dtype=float)
-    u = np.asarray(candidato['u'], dtype=float)
-    v = np.asarray(candidato['v'], dtype=float)
-    tmin, tmax = float(candidato['tmin']), float(candidato['tmax'])
-    smin, smax = float(candidato['smin']), float(candidato['smax'])
-    top = detectar_arco_curvo_na_janela(edge_map, origin, u, v, tmin, tmax, smin, smax, 'top', p, grad_map=grad_map)
-    bottom = detectar_arco_curvo_na_janela(edge_map, origin, u, v, tmin, tmax, smin, smax, 'bottom', p, grad_map=grad_map)
-    return top, bottom
-
-
-
-def _line_key(line):
-    if line is None:
-        return None
-    return tuple(map(int, np.asarray(line).reshape(4).tolist()))
-
-
-def _candidate_class_rank(c):
-    tipo = c.get('tipo', '')
-    n_arcos = int(c.get('n_arcos_validos', 0))
-    if tipo == 'par_orientado':
-        if n_arcos >= 2:
-            return 5
-        if n_arcos == 1:
-            return 4
-        return 3
-    if tipo == 'reta_unica_arco':
-        if n_arcos >= 2:
-            return 2
-        if n_arcos == 1:
-            return 1
-    return 0
-
-
-def adicionar_arcos_aos_pares(candidatos, pre, p):
-    saida = []
-    n_top = 0
-    n_bottom = 0
-    for c in candidatos:
-        c = c.copy()
-        top, bottom = detectar_arcos_para_par(pre, c, p)
-        c['cap_top_initial'] = top
-        c['cap_bottom_initial'] = bottom
-        c['cap_top_ok'] = bool(top.get('ok', False))
-        c['cap_bottom_ok'] = bool(bottom.get('ok', False))
-        c['n_arcos_validos'] = int(c['cap_top_ok']) + int(c['cap_bottom_ok'])
-        c['cap_score_initial'] = max(float(top.get('score', 0.0)), float(bottom.get('score', 0.0)))
-        c['roi_evidence_class'] = f"2_retas_{c['n_arcos_validos']}_arcos" if c['n_arcos_validos'] else '2_retas_sem_arco'
-        c['roi_evidence_score'] = float(c.get('score_pair', 0.0)) + 0.15 * c['n_arcos_validos'] + 0.05 * c['cap_score_initial']
-        n_top += int(c['cap_top_ok'])
-        n_bottom += int(c['cap_bottom_ok'])
-        saida.append(c)
-    saida = sorted(
-        saida,
-        key=lambda x: (_candidate_class_rank(x), x.get('score_pair', 0.0), x.get('cap_score_initial', 0.0)),
-        reverse=True
-    )
-    return saida, {'n_arcos_top': int(n_top), 'n_arcos_bottom': int(n_bottom), 'n_arcos_total': int(n_top + n_bottom)}
-
-
-def _buscar_linha_paralela_para_reta_unica(info_base, infos, usados_keys, p):
-    """Procura uma reta paralela opcional para limitar expansão transversal de reta única."""
-    pair_tol = float(_pget(p, 'pair_angle_tol_deg', 8.0))
-    dist_min = float(_pget(p, 'pair_dist_min', 10))
-    dist_max = float(_pget(p, 'pair_dist_max', 120))
-    origin = info_base['center']
-    u = info_base['u']
-    v = info_base['v']
-    _, _, s0 = _projecoes_linha_em_base(info_base['line'], origin, u, v)
-    melhores = []
-    for info in infos:
-        if _line_key(info['line']) == _line_key(info_base['line']):
-            continue
-        if _line_key(info['line']) in usados_keys:
-            continue
-        adiff = _angle_diff_180(info_base['angle'], info['angle'])
-        if adiff > pair_tol:
-            continue
-        _, _, s1 = _projecoes_linha_em_base(info['line'], origin, u, v)
-        dist = abs(s1 - s0)
-        if dist < dist_min or dist > dist_max:
-            continue
-        melhores.append((dist, info, s1 - s0))
-    if not melhores:
-        return None, None
-    melhores = sorted(melhores, key=lambda x: x[0])
-    return melhores[0][1], float(melhores[0][2])
-
-
-def gerar_candidatos_reta_unica_com_arcos(lines_ok, candidatos_pares, pre, p):
-    """Gera ROIs de 1 reta + arco apenas para retas não usadas em pares válidos."""
-    if not bool(_pget(p, 'single_line_candidates_enabled', True)):
-        return [], {'n_candidatos_reta_unica': 0, 'n_retas_livres': 0}
-
-    usados = set()
-    for c in candidatos_pares:
-        usados.add(_line_key(c.get('line1')))
-        usados.add(_line_key(c.get('line2')))
-    usados.discard(None)
-
-    infos = [_line_info(l) for l in lines_ok]
-    infos = [i for i in infos if i is not None]
-    livres = [i for i in infos if _line_key(i['line']) not in usados]
-
-    max_single = int(_pget(p, 'single_line_max', 30))
-    candidatos = []
-    h, w = pre['gray'].shape[:2]
-    margin = int(_pget(p, 'roi_margin_px', 6))
-
-    for info in sorted(livres, key=lambda x: x['length'], reverse=True)[:max_single]:
-        origin = info['center']
-        u = info['u']
-        v = info['v']
-        t1, t2, s0 = _projecoes_linha_em_base(info['line'], origin, u, v)
-        tmin, tmax = min(t1, t2), max(t1, t2)
-        base_len = max(1.0, float(tmax - tmin))
-        width_lim = base_len * float(_pget(p, 'single_line_transverse_limit_pct', 0.45))
-        smin = s0 - width_lim
-        smax = s0 + width_lim
-
-        cand = {
-            'line1': info['line'],
-            'line2': None,
-            'line_base': info['line'],
-            'line_oposta': None,
-            'origin': origin,
-            'u': u,
-            'v': v,
-            'tmin': float(tmin), 'tmax': float(tmax),
-            'smin': float(smin), 'smax': float(smax),
-            'distance': float(width_lim),
-            'overlap': 0.0,
-            'gap_axis': 0.0,
-            'angle_diff': 0.0,
-            'angle': float(info['angle']),
-            'score_pair': 0.30,
-            'tipo': 'reta_unica_arco',
-        }
-        top, bottom = detectar_arcos_para_par(pre, cand, p)
-        n_arcos = int(bool(top.get('ok', False))) + int(bool(bottom.get('ok', False)))
-        if n_arcos < 1:
-            continue
-
-        # Direção transversal provável: lado médio para onde o(s) arco(s) se desloca(m).
-        arc_pts = []
-        for cap in [top, bottom]:
-            pts = _cap_points(cap)
-            if pts.size:
-                arc_pts.append(pts)
-        all_arc_pts = np.vstack(arc_pts) if arc_pts else np.empty((0, 2), dtype=float)
-        if all_arc_pts.size:
-            s_arc = (all_arc_pts - origin.reshape(1, 2)) @ v
-            side_sign = 1.0 if float(np.mean(s_arc) - s0) >= 0 else -1.0
-        else:
-            side_sign = 1.0
-
-        info_oposta, signed_dist = _buscar_linha_paralela_para_reta_unica(info, infos, usados, p)
-        if info_oposta is not None and signed_dist is not None:
-            width_final = abs(signed_dist)
-            side_sign = 1.0 if signed_dist >= 0 else -1.0
-            cand['line_oposta'] = info_oposta['line']
-            cand['line2'] = info_oposta['line']
-            cand['distance'] = float(width_final)
-        else:
-            width_final = width_lim
-
-        cand['single_side_sign'] = float(side_sign)
-        cand['single_width_final'] = float(width_final)
-        cand['cap_top_initial'] = top
-        cand['cap_bottom_initial'] = bottom
-        cand['cap_top_ok'] = bool(top.get('ok', False))
-        cand['cap_bottom_ok'] = bool(bottom.get('ok', False))
-        cand['n_arcos_validos'] = int(n_arcos)
-        cand['cap_score_initial'] = max(float(top.get('score', 0.0)), float(bottom.get('score', 0.0)))
-        cand['roi_evidence_class'] = f"1_reta_{n_arcos}_arcos"
-        cand['roi_evidence_score'] = 0.35 + 0.12 * n_arcos + 0.08 * cand['cap_score_initial']
-
-        # ROI inicial aproximada somente para visualização; a BBox final é calculada na expansão.
-        s1 = s0
-        s2 = s0 + side_sign * width_final
-        corners = _oriented_corners(origin, u, v, tmin, tmax, min(s1, s2), max(s1, s2))
-        bbox = _bbox_axis_from_points(corners, (h, w), margin=margin)
-        if bbox is None:
-            continue
-        cand['oriented_corners'] = corners
-        cand['bbox'] = bbox
-        x1, y1, x2, y2 = bbox
-        cand['area'] = int((x2 - x1) * (y2 - y1))
-        cand['aspect'] = float((y2 - y1) / max(1, x2 - x1))
-        candidatos.append(cand)
-
-    candidatos = sorted(
-        candidatos,
-        key=lambda x: (_candidate_class_rank(x), x.get('roi_evidence_score', 0.0), x.get('cap_score_initial', 0.0)),
-        reverse=True
-    )
-    return candidatos, {'n_candidatos_reta_unica': len(candidatos), 'n_retas_livres': len(livres)}
-
-
-def _cap_points(cap):
-    if not isinstance(cap, dict) or not cap.get('ok', False):
-        return np.empty((0, 2), dtype=float)
-    pts = cap.get('pts')
-    if pts is None:
-        cont = cap.get('contour')
-        if cont is None:
-            return np.empty((0, 2), dtype=float)
-        pts = np.asarray(cont, dtype=float).reshape(-1, 2)
-    return np.asarray(pts, dtype=float).reshape(-1, 2)
-
-
-
 def expandir_candidato_orientado_por_score(img_bgr, pre, candidato, clf, p):
-    """Expansão automática da BBox conforme evidências geométricas.
-
-    - Par de retas + 2 arcos: não expande; apenas engloba retas e arcos.
-    - Par de retas + 0/1 arco: expande longitudinalmente até arco existente ou até limite percentual.
-    - 1 reta + arco(s): expande transversalmente no lado indicado pelos arcos até reta paralela ou limite.
     """
-    h, w = pre['gray'].shape[:2]
-    origin = np.asarray(candidato['origin'], dtype=float)
-    u = np.asarray(candidato['u'], dtype=float)
-    v = np.asarray(candidato['v'], dtype=float)
-    margin = int(_pget(p, 'bbox_arc_margin_px', _pget(p, 'roi_margin_px', 6)))
+    Compatibilidade com a pipeline anterior.
 
-    cap_top = candidato.get('cap_top_initial')
-    cap_bottom = candidato.get('cap_bottom_initial')
-    if not isinstance(cap_top, dict) or not isinstance(cap_bottom, dict):
-        cap_top, cap_bottom = detectar_arcos_para_par(pre, candidato, p)
-
-    top_pts = _cap_points(cap_top)
-    bottom_pts = _cap_points(cap_bottom)
-    arc_pts_list = [pts for pts in [top_pts, bottom_pts] if pts.size]
-    arc_pts = np.vstack(arc_pts_list) if arc_pts_list else np.empty((0, 2), dtype=float)
-
-    tipo = candidato.get('tipo', 'par_orientado')
-    line1_pts = _line_points(candidato.get('line1'))
-    line2_pts = _line_points(candidato.get('line2'))
-    line_pts_list = [pts for pts in [line1_pts, line2_pts] if pts.size]
-    if not line_pts_list:
-        return candidato.get('bbox'), {'cap_score': 0.0}, {'refine_mode': 'sem_linhas'}
-    line_pts = np.vstack(line_pts_list)
-
-    rel_lines = line_pts - origin.reshape(1, 2)
-    t_lines = rel_lines @ u
-    s_lines = rel_lines @ v
-    tmin = float(np.min(t_lines))
-    tmax = float(np.max(t_lines))
-    smin = float(np.min(s_lines))
-    smax = float(np.max(s_lines))
-
-    base_len = max(1.0, tmax - tmin)
-    width = max(1.0, smax - smin)
-    mode = 'bbox_auto'
-
-    if tipo == 'par_orientado':
-        # Largura transversal do par vem das retas, com pequena margem automática.
-        s_extra = width * float(_pget(p, 'bbox_auto_width_extra_pct', 0.10))
-        smin -= s_extra
-        smax += s_extra
-
-        if top_pts.size:
-            rel_top = top_pts - origin.reshape(1, 2)
-            tmax = max(tmax, float(np.max(rel_top @ u)))
-            smin = min(smin, float(np.min(rel_top @ v)) - s_extra)
-            smax = max(smax, float(np.max(rel_top @ v)) + s_extra)
-        if bottom_pts.size:
-            rel_bot = bottom_pts - origin.reshape(1, 2)
-            tmin = min(tmin, float(np.min(rel_bot @ u)))
-            smin = min(smin, float(np.min(rel_bot @ v)) - s_extra)
-            smax = max(smax, float(np.max(rel_bot @ v)) + s_extra)
-
-        if top_pts.size and bottom_pts.size:
-            mode = 'par_2_arcos_sem_expansao'
-        else:
-            extra = base_len * float(_pget(p, 'bbox_pair_longitudinal_limit_pct', 0.70))
-            if not top_pts.size:
-                tmax += extra
-            if not bottom_pts.size:
-                tmin -= extra
-            mode = 'par_expansao_longitudinal_auto'
-
-    else:
-        # Reta única: a extensão longitudinal engloba a reta e os arcos;
-        # a expansão principal é transversal no lado indicado pelos arcos.
-        if arc_pts.size:
-            rel_arc = arc_pts - origin.reshape(1, 2)
-            tmin = min(tmin, float(np.min(rel_arc @ u)))
-            tmax = max(tmax, float(np.max(rel_arc @ u)))
-            s_arc = rel_arc @ v
-            side_sign = float(candidato.get('single_side_sign', 1.0))
-            if np.isfinite(np.mean(s_arc)):
-                side_sign = 1.0 if float(np.mean(s_arc) - np.mean(s_lines)) >= 0 else -1.0
-        else:
-            side_sign = float(candidato.get('single_side_sign', 1.0))
-
-        width_limit = float(candidato.get('single_width_final', base_len * float(_pget(p, 'single_line_transverse_limit_pct', 0.45))))
-        s0 = float(np.mean(s_lines))
-        s1 = s0
-        s2 = s0 + side_sign * abs(width_limit)
-        smin, smax = min(s1, s2), max(s1, s2)
-        s_extra = abs(width_limit) * float(_pget(p, 'bbox_auto_width_extra_pct', 0.10))
-        smin -= s_extra
-        smax += s_extra
-        if arc_pts.size:
-            rel_arc = arc_pts - origin.reshape(1, 2)
-            smin = min(smin, float(np.min(rel_arc @ v)) - s_extra)
-            smax = max(smax, float(np.max(rel_arc @ v)) + s_extra)
-        mode = 'reta_unica_expansao_transversal_auto'
-
-    if tmax < tmin:
-        tmin, tmax = tmax, tmin
-    if smax < smin:
-        smin, smax = smax, smin
-    if (tmax - tmin) < 2:
-        tmax = tmin + 2
-    if (smax - smin) < 2:
-        smax = smin + 2
-
-    corners = _oriented_corners(origin, u, v, tmin, tmax, smin, smax)
-    bbox = _bbox_axis_from_points(corners, (h, w), margin=margin)
+    Na V2, a BBox já é calculada com margem fixa na formação do par de retas.
+    Portanto, esta função apenas reaproveita a BBox do candidato e, se houver
+    classificador, calcula o score HOG/SVM.
+    """
+    bbox = candidato.get('bbox')
     if bbox is None or not _bbox_valida(bbox):
-        bbox = candidato.get('bbox')
-        corners = candidato.get('oriented_corners')
+        return None, {'cap_score': 0.0}, {'refine_mode': 'bbox_invalida'}
 
     x1, y1, x2, y2 = map(int, bbox)
     crop = img_bgr[y1:y2, x1:x2].copy()
     pred = None
     svm_score = 0.0
+
     if clf is not None and crop.size > 0:
         try:
-            feat = extrair_hog_de_imagem(crop, p).reshape(1, -1)
+            feat = validar_features_modelo(extrair_hog_de_imagem(crop, p), clf, contexto="ROI V2")
             pred = int(clf.predict(feat)[0])
             try:
                 svm_score = float(clf.decision_function(feat)[0])
@@ -2588,28 +2094,23 @@ def expandir_candidato_orientado_por_score(img_bgr, pre, candidato, clf, p):
         except Exception:
             svm_score = -999.0
 
-    cap_score = max(float(cap_top.get('score', 0.0)), float(cap_bottom.get('score', 0.0)))
     geom_score = float(candidato.get('score_pair', 0.0))
-    score_final = svm_score + 0.25 * cap_score + 0.10 * geom_score + 0.05 * _candidate_class_rank(candidato)
-    cap = {
-        'cap_score': cap_score,
-        'top_score': float(cap_top.get('score', 0.0)),
-        'bottom_score': float(cap_bottom.get('score', 0.0)),
-        'top_contour': cap_top.get('contour'),
-        'bottom_contour': cap_bottom.get('contour'),
-        'top_method': cap_top.get('method'),
-        'bottom_method': cap_bottom.get('method'),
-    }
+    score_final = svm_score + 0.25 * geom_score if clf is not None else geom_score
+
+    cap = {'cap_score': 0.0}
     ref_info = {
-        'refine_mode': mode,
+        'refine_mode': 'bbox_margem_fixa_v2',
         'tested': 1,
         'factor': 1.0,
-        'score_final': score_final,
+        'score_final': float(score_final),
         'score_svm': svm_score,
         'pred_refine': pred,
         'geom_score': geom_score,
-        'oriented_corners': corners,
-        'tmin': float(tmin), 'tmax': float(tmax), 'smin': float(smin), 'smax': float(smax),
+        'oriented_corners': candidato.get('oriented_corners'),
+        'tmin': float(candidato.get('tmin', 0.0)),
+        'tmax': float(candidato.get('tmax', 0.0)),
+        'smin': float(candidato.get('smin', 0.0)),
+        'smax': float(candidato.get('smax', 0.0)),
     }
     return tuple(map(int, bbox)), cap, ref_info
 
@@ -2630,33 +2131,39 @@ def _bbox_iou_e_overlap_menor(a, b):
     return float(iou), float(ov_small)
 
 
-
 def consolidar_rois_sobrepostas(candidatos, p):
     if not bool(_pget(p, 'roi_consolidation_enabled', True)):
-        return list(candidatos), {'n_candidatos_pre_consolidacao': len(candidatos), 'n_candidatos_pos_consolidacao': len(candidatos), 'n_rois_consolidadas': 0}
+        return list(candidatos), {
+            'n_candidatos_pre_consolidacao': len(candidatos),
+            'n_candidatos_pos_consolidacao': len(candidatos),
+            'n_rois_consolidadas': 0
+        }
+
     iou_thr = float(_pget(p, 'roi_consolidation_iou', 0.45))
     overlap_thr = float(_pget(p, 'roi_consolidation_overlap_small', 0.75))
-    center_thr = float(_pget(p, 'roi_consolidation_center_px', 35))
+    center_thr = float(_pget(p, 'roi_consolidation_center_px', 110))
 
     def rank(c):
         return (
-            _candidate_class_rank(c),
-            float(c.get('roi_evidence_score', 0.0)),
             float(c.get('score_pair', 0.0)),
-            float(c.get('cap_score_initial', 0.0)),
             float(c.get('overlap', 0.0)),
+            float(c.get('score_lw_ratio', 0.0)),
+            -float(c.get('angle_diff', 0.0)),
+            float(c.get('area', 0.0)),
         )
 
     ordenados = sorted(candidatos, key=rank, reverse=True)
     usados = [False] * len(ordenados)
     saida = []
     removidas = 0
+
     for i, base in enumerate(ordenados):
         if usados[i]:
             continue
         usados[i] = True
         grupo = [base]
         cb = _bbox_center(base.get('bbox'))
+
         for j in range(i + 1, len(ordenados)):
             if usados[j]:
                 continue
@@ -2666,35 +2173,31 @@ def consolidar_rois_sobrepostas(candidatos, p):
             if (iou >= iou_thr) or (ov_small >= overlap_thr and (center_thr <= 0 or dist_c <= center_thr)):
                 usados[j] = True
                 grupo.append(cand)
+
         melhor = sorted(grupo, key=rank, reverse=True)[0].copy()
         melhor['n_rois_consolidadas'] = int(len(grupo))
         removidas += max(0, len(grupo) - 1)
         saida.append(melhor)
-    return saida, {'n_candidatos_pre_consolidacao': len(candidatos), 'n_candidatos_pos_consolidacao': len(saida), 'n_rois_consolidadas': int(removidas)}
+
+    return saida, {
+        'n_candidatos_pre_consolidacao': len(candidatos),
+        'n_candidatos_pos_consolidacao': len(saida),
+        'n_rois_consolidadas': int(removidas)
+    }
 
 
-
-def candidatos_linhas_arcos_orientados(img_bgr, pre, p):
+def candidatos_linhas_pares_v2(img_bgr, pre, p):
     fonte = _pget(p, 'hough_source_any', 'canny_hough')
     edges = pre.get(fonte, pre.get('canny_hough', pre['canny_full']))
+
     lines_raw = detectar_linhas_hough(edges, p)
     lines_merged = unir_segmentos_colineares(lines_raw, p)
     lines_geom = filtrar_linhas_remanescentes(lines_merged, p)
     lines_ok, debug_suporte = filtrar_linhas_por_suporte(lines_geom, pre, p)
 
-    candidatos_pares, debug_pares = gerar_pares_orientados(lines_ok, pre['gray'].shape, p, return_debug=True)
-    candidatos_pares_arcos, debug_arcos = adicionar_arcos_aos_pares(candidatos_pares, pre, p)
-
-    candidatos_single, debug_single = gerar_candidatos_reta_unica_com_arcos(lines_ok, candidatos_pares, pre, p)
-    candidatos_brutos = candidatos_pares_arcos + candidatos_single
-    candidatos_brutos = sorted(
-        candidatos_brutos,
-        key=lambda x: (_candidate_class_rank(x), x.get('roi_evidence_score', 0.0), x.get('score_pair', 0.0), x.get('cap_score_initial', 0.0)),
-        reverse=True
-    )[:int(_pget(p, 'max_rois', 80))]
-
+    candidatos_brutos, debug_pares = gerar_pares_orientados(lines_ok, pre['gray'].shape, p, return_debug=True)
     candidatos, debug_consolidacao = consolidar_rois_sobrepostas(candidatos_brutos, p)
-    candidatos = candidatos[:int(_pget(p, 'max_rois', 80))]
+    candidatos = candidatos[:int(_pget(p, 'max_rois', 50))]
 
     info = {
         'lines_raw': lines_raw,
@@ -2707,16 +2210,13 @@ def candidatos_linhas_arcos_orientados(img_bgr, pre, p):
         'n_lines_merged': len(lines_merged),
         'n_lines_filtradas_geom': len(lines_geom),
         'n_lines_filtradas': len(lines_ok),
-        'n_candidatos_par': len(candidatos_pares),
-        'n_candidatos_reta_unica': len(candidatos_single),
+        'n_candidatos_par': len(candidatos_brutos),
         'n_candidatos_brutos': len(candidatos_brutos),
         'n_candidatos_total': len(candidatos),
         'n_rois_pos_evidencia': len(candidatos_brutos),
     }
     info.update(debug_suporte)
     info.update(debug_pares)
-    info.update(debug_arcos)
-    info.update(debug_single)
     info.update(debug_consolidacao)
     return candidatos, info
 
@@ -2729,31 +2229,34 @@ def detectar_candidatos_cilindro(img_bgr, clf=None, p=None, score_min=None, nms_
     max_det = int(_pget(p, 'det_max_det', 8) if max_det is None else max_det)
 
     pre = aplicar_preprocessamento(img_bgr, p)
-    candidatos, info_linhas = candidatos_linhas_arcos_orientados(img_bgr, pre, p)
+    candidatos, info_linhas = candidatos_linhas_pares_v2(img_bgr, pre, p)
 
     resultados, positivos = [], []
     erros = 0
+
     for idx, c in enumerate(candidatos, start=1):
         try:
             bbox_ref, cap, ref_info = expandir_candidato_orientado_por_score(img_bgr, pre, c, clf, p)
             if bbox_ref is None or not _bbox_valida(bbox_ref):
                 continue
+
             x1, y1, x2, y2 = map(int, bbox_ref)
             crop = img_bgr[y1:y2, x1:x2].copy()
             if crop.size == 0:
                 continue
+
             pred = ref_info.get('pred_refine')
             score_svm = ref_info.get('score_svm')
             score_final = ref_info.get('score_final')
 
             if clf is not None and pred is None:
-                feat = extrair_hog_de_imagem(crop, p).reshape(1, -1)
+                feat = validar_features_modelo(extrair_hog_de_imagem(crop, p), clf, contexto=f"ROI {idx}")
                 pred = int(clf.predict(feat)[0])
                 try:
                     score_svm = float(clf.decision_function(feat)[0])
                 except Exception:
                     score_svm = float(pred)
-                score_final = score_svm + 0.25 * float(cap.get('cap_score', 0.0)) + 0.10 * float(c.get('score_pair', 0.0))
+                score_final = score_svm + 0.25 * float(c.get('score_pair', 0.0))
 
             r = {
                 'roi': idx,
@@ -2765,36 +2268,69 @@ def detectar_candidatos_cilindro(img_bgr, clf=None, p=None, score_min=None, nms_
                 'score_float': score_svm,
                 'score_final': None if score_final is None else round(float(score_final), 3),
                 'score_final_float': score_final,
-                'cap_score': round(float(cap.get('cap_score', 0.0)), 3),
-                'top_contour': cap.get('top_contour'),
-                'bottom_contour': cap.get('bottom_contour'),
+                'score_geom': round(float(c.get('score_pair', 0.0)), 3),
+                'score_pair': round(float(c.get('score_pair', 0.0)), 3),
+                'score_roi': round(float(c.get('score_roi', c.get('score_pair', 0.0))), 3),
+                'score_overlap': round(float(c.get('score_overlap', 0.0)), 3),
+                'score_angle': round(float(c.get('score_angle', 0.0)), 3),
+                'score_lw_ratio': round(float(c.get('score_lw_ratio', 0.0)), 3),
+                'lw_ratio': round(float(c.get('lw_ratio', 0.0)), 2),
+                'lw_target': round(float(c.get('lw_target', _pget(p, 'pair_lw_ratio_target', 5.0))), 2),
                 'refine_mode': ref_info.get('refine_mode'),
                 'dist_px': round(float(c.get('distance', 0.0)), 1),
                 'score par': round(float(c.get('score_pair', 0.0)), 2),
-                'score ROI': round(float(c.get('roi_evidence_score', 0.0)), 3),
-                'evidência ROI': c.get('roi_evidence_class'),
-                'arcos válidos': int(c.get('n_arcos_validos', 0)),
+                'score ROI': round(float(c.get('score_roi', c.get('score_pair', 0.0))), 3),
+                'evidência ROI': c.get('roi_evidence_class', '2_retas_paralelas'),
                 'overlap': round(float(c.get('overlap', 0.0)), 2),
                 'ang_diff': round(float(c.get('angle_diff', 0.0)), 2),
                 'angle': round(float(c.get('angle', 0.0)), 1),
-                'tipo': c.get('tipo', 'par_orientado'),
+                'tipo': c.get('tipo', 'par_retas_v2'),
             }
+
             resultados.append(r)
+
             if clf is not None and pred == 1 and (score_final is None or float(score_final) >= score_min):
                 positivos.append(r)
+
         except Exception as e:
             erros += 1
-            resultados.append({'roi': idx, 'pred': 'erro', 'bbox_original': c.get('bbox'), 'bbox': c.get('bbox'), 'erro': str(e)[:120]})
+            err_msg = str(e)[:240]
+            print(f"[ERRO ROI {idx}] {err_msg}", flush=True)
+            resultados.append({
+                'roi': idx,
+                'pred': 'erro',
+                'bbox_original': c.get('bbox'),
+                'bbox': c.get('bbox'),
+                'erro': err_msg
+            })
 
-    positivos_finais = nms_bboxes_refinado(positivos, iou_thr=nms_iou, max_det=max_det) if aplicar_nms else positivos
+    positivos_finais = nms_bboxes_refinado(
+        positivos,
+        iou_thr=nms_iou,
+        max_det=max_det
+    ) if aplicar_nms else positivos
+
     ids_finais = {r['roi'] for r in positivos_finais}
     for r in resultados:
         r['nms_keep'] = bool(r.get('roi') in ids_finais)
         r['pred_visual'] = 'suprimido' if r.get('pred') == 'cilindro' and not r['nms_keep'] else r.get('pred')
 
-    info = {'pred_raw': len(positivos), 'pred_final': len(positivos_finais), 'erro_rois': int(erros), 'score_min': score_min, 'nms_iou': nms_iou, 'detector_strategy': 'pares_arcos_simplificado'}
+    info = {
+        'pred_raw': len(positivos),
+        'pred_final': len(positivos_finais),
+        'erro_rois': int(erros),
+        'score_min': score_min,
+        'nms_iou': nms_iou,
+        'detector_strategy': 'pares_retas_v2'
+    }
     info.update(info_linhas)
-    return {'pre': pre, 'candidatos': candidatos, 'resultados': resultados, 'positivos_finais': positivos_finais, 'info': info}
+    return {
+        'pre': pre,
+        'candidatos': candidatos,
+        'resultados': resultados,
+        'positivos_finais': positivos_finais,
+        'info': info
+    }
 
 
 # ------------------------------------------------------------
@@ -2803,11 +2339,8 @@ def detectar_candidatos_cilindro(img_bgr, clf=None, p=None, score_min=None, nms_
 COLOR_HOUGH_RAW = (0, 220, 255)
 COLOR_HOUGH_FILTERED = (0, 220, 255)
 COLOR_CANDIDATE_LINE = (0, 220, 255)
-COLOR_SINGLE_LINE = COLOR_CANDIDATE_LINE
 COLOR_ROI_INITIAL = (255, 140, 0)
 COLOR_ROI_REFINED = (0, 255, 80)
-COLOR_ARC_TOP = (255, 0, 0)
-COLOR_ARC_BOTTOM = (255, 0, 0)
 COLOR_GT = (255, 220, 0)
 COLOR_NEG = COLOR_ROI_INITIAL
 
@@ -2821,11 +2354,8 @@ def _desenhar_poligono_orientado(img_rgb, pts, color=(0, 255, 255), thickness=1)
 
 
 def _desenhar_retas_usadas_candidato(img_rgb, candidato, color=COLOR_CANDIDATE_LINE, thickness=1):
-    """
-    Desenha as retas usadas como evidência da detecção.
-    A espessura padrão é mínima para não esconder a imagem de fundo.
-    """
-    for line_key in ['line_base', 'line_oposta']:
+    """Desenha as retas usadas como evidência da detecção."""
+    for line_key in ['line_base', 'line_oposta', 'line1', 'line2']:
         line = candidato.get(line_key)
         if line is None:
             continue
@@ -2833,33 +2363,7 @@ def _desenhar_retas_usadas_candidato(img_rgb, candidato, color=COLOR_CANDIDATE_L
         cv2.line(img_rgb, (x1, y1), (x2, y2), color, int(max(1, thickness)))
 
 
-def _desenhar_arco_cap(img_rgb, contour=None, lado='top', color=(255, 0, 0), thickness=1, **kwargs):
-    """
-    Desenha o contorno curvo aceito como arco/tampa.
-    Os pontos de extremidade não são marcados com círculos grandes para reduzir poluição visual.
-    """
-    if contour is None or len(contour) < 2:
-        return img_rgb
-    pts = np.asarray(contour, dtype=np.int32).reshape(-1, 1, 2)
-    cv2.polylines(img_rgb, [pts], False, color, int(max(1, thickness)))
-    return img_rgb
-
-
-def _desenhar_arcos_candidato(img_rgb, candidato, thickness=1):
-    """Desenha somente os arcos aceitos do candidato."""
-    top = candidato.get('cap_top_initial', {})
-    bottom = candidato.get('cap_bottom_initial', {})
-    if isinstance(top, dict) and top.get('ok'):
-        _desenhar_arco_cap(img_rgb, top.get('contour'), lado='top', color=COLOR_ARC_TOP, thickness=thickness)
-    if isinstance(bottom, dict) and bottom.get('ok'):
-        _desenhar_arco_cap(img_rgb, bottom.get('contour'), lado='bottom', color=COLOR_ARC_BOTTOM, thickness=thickness)
-
-
 def _desenhar_numero_bbox(img_rgb, texto, x, y, color, font_scale=0.48, thickness=2):
-    """
-    Desenha o número da detecção com espessura maior que as caixas.
-    As caixas ficam finas, mas os números permanecem legíveis.
-    """
     cv2.putText(
         img_rgb,
         str(texto),
@@ -2872,31 +2376,22 @@ def _desenhar_numero_bbox(img_rgb, texto, x, y, color, font_scale=0.48, thicknes
     )
 
 
-def _desenhar_bbox_original_e_final(img_rgb, candidato, img_bgr_ref, pre, p, idx=None, line_thickness=1, arc_thickness=1, bbox_thickness=1):
+def _desenhar_bbox_original_e_final(img_rgb, candidato, img_bgr_ref, pre, p, idx=None, line_thickness=1, bbox_thickness=1):
     """
-    Desenha, na mesma imagem, a BBox original e a BBox final automática.
+    Desenha retas e BBoxes sem qualquer evidência curva.
 
     Convenção visual:
-    - laranja: BBox original do candidato, antes da expansão automática;
-    - verde: BBox final após expansão/sitiamento automático;
     - ciano: retas usadas como evidência;
-    - vermelho: arcos aceitos.
-
-    Importante:
-    - não desenha o polígono orientado para evitar uma terceira caixa visual;
-    - permite controlar separadamente a espessura das retas/arcos e das BBoxes;
-    - mantém o número mais visível.
+    - laranja: BBox inicial/geométrica do par;
+    - verde: BBox final usada no HOG/SVM.
     """
     _desenhar_retas_usadas_candidato(img_rgb, candidato, thickness=line_thickness)
-    _desenhar_arcos_candidato(img_rgb, candidato, thickness=arc_thickness)
 
-    # BBox original do candidato, antes da expansão final.
     bbox_original = candidato.get('bbox')
     if _bbox_valida(bbox_original):
         x1, y1, x2, y2 = map(int, bbox_original)
         cv2.rectangle(img_rgb, (x1, y1), (x2, y2), COLOR_ROI_INITIAL, int(max(1, bbox_thickness)))
 
-    # BBox final automática.
     try:
         bbox_ref, cap, ref_info = expandir_candidato_orientado_por_score(img_bgr_ref, pre, candidato, None, p)
     except Exception:
@@ -2906,7 +2401,8 @@ def _desenhar_bbox_original_e_final(img_rgb, candidato, img_bgr_ref, pre, p, idx
         bx1, by1, bx2, by2 = map(int, bbox_ref)
         cv2.rectangle(img_rgb, (bx1, by1), (bx2, by2), COLOR_ROI_REFINED, int(max(1, bbox_thickness)))
         if idx is not None:
-            _desenhar_numero_bbox(img_rgb, idx, bx1, by1 - 3, COLOR_ROI_REFINED)
+            score = float(candidato.get('score_pair', candidato.get('score_roi', 0.0)))
+            _desenhar_numero_bbox(img_rgb, f'{idx} ({score:.2f})', bx1, by1 - 3, COLOR_ROI_REFINED)
     elif idx is not None and _bbox_valida(bbox_original):
         x1, y1, x2, y2 = map(int, bbox_original)
         _desenhar_numero_bbox(img_rgb, idx, x1, y1 - 3, COLOR_ROI_INITIAL)
@@ -2915,25 +2411,16 @@ def _desenhar_bbox_original_e_final(img_rgb, candidato, img_bgr_ref, pre, p, idx
 
 
 def _desenhar_roi_inicial_candidato(img_rgb, candidato, idx=None):
-    """
-    Visualização da hipótese inicial.
-    Desenha retas, arcos e a BBox original com espessura mínima.
-    """
     _desenhar_retas_usadas_candidato(img_rgb, candidato, thickness=1)
-    _desenhar_arcos_candidato(img_rgb, candidato, thickness=1)
     if _bbox_valida(candidato.get('bbox')):
         x1, y1, x2, y2 = map(int, candidato['bbox'])
         cv2.rectangle(img_rgb, (x1, y1), (x2, y2), COLOR_ROI_INITIAL, 1)
         if idx is not None:
-            _desenhar_numero_bbox(img_rgb, idx, x1, y1 - 3, COLOR_ROI_INITIAL)
+            score = float(candidato.get('score_pair', candidato.get('score_roi', 0.0)))
+            _desenhar_numero_bbox(img_rgb, f'{idx} ({score:.2f})', x1, y1 - 3, COLOR_ROI_INITIAL)
 
 
-def _desenhar_roi_expandida_candidato(img_rgb, candidato, img_bgr_ref, pre, p, idx=None, line_thickness=1, arc_thickness=1, bbox_thickness=1):
-    """
-    Visualização comparativa da expansão.
-    Mostra a BBox original e a BBox final automática na mesma imagem,
-    permitindo controlar a espessura das retas/arcos e das caixas.
-    """
+def _desenhar_roi_expandida_candidato(img_rgb, candidato, img_bgr_ref, pre, p, idx=None, line_thickness=1, bbox_thickness=1, **kwargs):
     return _desenhar_bbox_original_e_final(
         img_rgb,
         candidato,
@@ -2942,7 +2429,6 @@ def _desenhar_roi_expandida_candidato(img_rgb, candidato, img_bgr_ref, pre, p, i
         p,
         idx=idx,
         line_thickness=line_thickness,
-        arc_thickness=arc_thickness,
         bbox_thickness=bbox_thickness
     )
 
@@ -2954,17 +2440,20 @@ def render_rois_iniciais_refinadas():
     p = STATE['params']
     det = detectar_candidatos_cilindro(img_bgr_ref, clf=None, p=p, aplicar_nms=False)
     info = det['info']
-    candidatos = list(info.get('candidatos_sem_consolidacao', det.get('candidatos', [])))[:int(_pget(p, 'max_rois', 80))]
+    candidatos = list(info.get('candidatos_sem_consolidacao', det.get('candidatos', [])))[:int(_pget(p, 'max_rois', 50))]
     img = pre['rgb'].copy()
     for k, c in enumerate(candidatos, start=1):
         _desenhar_roi_inicial_candidato(img, c, idx=k)
     fig, ax = plt.subplots(1, 1, figsize=(10, 7), dpi=120)
     ax.imshow(img)
-    ax.set_title(f"BBoxes originais antes do IoU | pares={info.get('n_candidatos_par', 0)} | arcos={info.get('n_arcos_total', 0)} | caixas={len(candidatos)}")
+    ax.set_title(
+        f"BBoxes por pares de retas antes do IoU | pares={info.get('n_candidatos_par', 0)} | "
+        f"alvo L/W={_pget(p, 'pair_lw_ratio_target', 5.0)} | caixas={len(candidatos)}"
+    )
     ax.axis('off')
     fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.01)
     plt.show()
-    display(HTML('<small><b>Legenda:</b> ciano = retas usadas; vermelho = arcos aceitos; laranja = BBox original antes do IoU.</small>'))
+    display(HTML('<small><b>Legenda:</b> ciano = retas usadas; laranja = BBox geométrica antes da consolidação.</small>'))
     if not candidatos:
         print('Nenhuma ROI inicial foi gerada. Ajuste Hough, suporte das retas ou critérios dos pares paralelos.')
 
@@ -2978,15 +2467,19 @@ def render_rois_expandidas_refinadas():
     candidatos = det['candidatos']; info = det['info']
     atualizar_opcoes_roi_hog(candidatos)
     img = pre['rgb'].copy()
-    for k, c in enumerate(candidatos[:int(_pget(p, 'max_rois', 80))], start=1):
+    for k, c in enumerate(candidatos[:int(_pget(p, 'max_rois', 50))], start=1):
         _desenhar_roi_expandida_candidato(img, c, img_bgr_ref, pre, p, idx=k)
     fig, ax = plt.subplots(1, 1, figsize=(10, 7), dpi=120)
     ax.imshow(img)
-    ax.set_title(f"BBoxes automáticas com IoU | antes/depois={info.get('n_candidatos_pre_consolidacao', len(candidatos))}/{info.get('n_candidatos_pos_consolidacao', len(candidatos))} | finais={len(candidatos)}")
+    ax.set_title(
+        f"BBoxes com margem fixa + IoU | antes/depois="
+        f"{info.get('n_candidatos_pre_consolidacao', len(candidatos))}/"
+        f"{info.get('n_candidatos_pos_consolidacao', len(candidatos))} | finais={len(candidatos)}"
+    )
     ax.axis('off')
     fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.01)
     plt.show()
-    display(HTML('<small><b>Legenda:</b> ciano = retas usadas; vermelho = arcos aceitos; laranja = BBox original; verde = BBox final automática após consolidação por IoU.</small>'))
+    display(HTML('<small><b>Legenda:</b> ciano = retas usadas; laranja = BBox inicial; verde = BBox final após consolidação por IoU.</small>'))
     if not candidatos:
         print('Nenhuma ROI consolidada foi gerada.')
 
@@ -2994,6 +2487,13 @@ def render_rois_expandidas_refinadas():
 def render_rois_refinadas():
     render_rois_iniciais_refinadas()
     render_rois_expandidas_refinadas()
+
+
+def _score_texto_candidato(c):
+    try:
+        return f"score={float(c.get('score_pair', c.get('score_roi', 0.0))):.2f}"
+    except Exception:
+        return "score=-"
 
 
 def render_hog_visualizacao_refinada():
@@ -3023,14 +2523,31 @@ def render_hog_visualizacao_refinada():
     img_contexto = pre['rgb'].copy()
     _desenhar_roi_expandida_candidato(img_contexto, c, img_bgr_ref, pre, p, idx=idx+1)
     crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
+    score_txt = _score_texto_candidato(c)
     fig, axs = plt.subplots(1, 4, figsize=(16, 4.6))
-    axs[0].imshow(img_contexto); axs[0].set_title('ROI/BBox selecionada')
+    axs[0].imshow(img_contexto); axs[0].set_title(f'ROI/BBox selecionada\nROI {idx+1} | {score_txt}')
     axs[1].imshow(crop_rgb); axs[1].set_title('Recorte usado no SVM')
     axs[2].imshow(hog_input_resized, cmap='gray'); axs[2].set_title(f"Entrada HOG\n{p['hog_input']}")
     axs[3].imshow(hog_image, cmap='gray'); axs[3].set_title(f'HOG\nbase={len(features_hog)} | total={len(features_total)}')
     for ax in axs: ax.axis('off')
     plt.tight_layout(); plt.show()
 
+    df_info = pd.DataFrame([{
+        'roi': idx + 1,
+        'score_roi': round(float(c.get('score_pair', c.get('score_roi', 0.0))), 3),
+        'overlap': round(float(c.get('overlap', 0.0)), 2),
+        'ang_diff': round(float(c.get('angle_diff', 0.0)), 2),
+        'L/W': round(float(c.get('lw_ratio', 0.0)), 2),
+        'alvo_L/W': round(float(c.get('lw_target', _pget(p, 'pair_lw_ratio_target', 5.0))), 2),
+        'bbox': c.get('bbox'),
+        'hog_input': p['hog_input'],
+        'hog_size': f"{p['hog_resize_w']}x{p['hog_resize_h']}",
+        'orient': p['hog_orientations'],
+        'px_cell': p['hog_pixels_per_cell'],
+        'cells_block': p['hog_cells_per_block'],
+        'n_atributos': len(features_total)
+    }])
+    exibir_tabela_compacta(df_info, max_rows=1)
 
 
 # ============================================================
@@ -3164,7 +2681,7 @@ def carregar_modelo(model_path=MODEL_PATH):
 
 
 def desenhar_apenas_bboxes(frame_bgr, deteccoes, mostrar_score=True):
-    """Desenha somente a BBox final da detecção, sem retas e sem arcos."""
+    """Desenha somente a BBox final da detecção, sem retas e sem curvas."""
     out = frame_bgr.copy()
     for r in deteccoes:
         bbox = r.get('bbox')
@@ -3199,6 +2716,182 @@ def desenhar_apenas_bboxes(frame_bgr, deteccoes, mostrar_score=True):
     return out
 
 
+
+
+RESOLUTION_PRESETS = [
+    (320, 240),
+    (424, 240),
+    (640, 480),
+    (800, 600),
+    (960, 540),
+    (1280, 720),
+]
+
+
+def _indice_resolucao_inicial(width=None, height=None):
+    """Escolhe o índice do preset mais próximo da resolução inicial."""
+    if width is None or height is None:
+        return 0
+    alvo = (int(width), int(height))
+    dist = [abs(w - alvo[0]) + abs(h - alvo[1]) for w, h in RESOLUTION_PRESETS]
+    return int(np.argmin(dist))
+
+
+def _score_para_slider(score_min):
+    """Mapeia score_min [-30.0, +10.0] para slider inteiro [0, 400]."""
+    try:
+        score = float(score_min)
+    except Exception:
+        score = 0.0
+    score = max(-30.0, min(10.0, score))
+    return int(round((score + 30.0) * 10.0))
+
+
+def _slider_para_score(v):
+    """Mapeia slider inteiro [0, 400] para score_min [-30.0, +10.0]."""
+    return float(v) / 10.0 - 30.0
+
+
+class PainelControlesRuntime:
+    """Painel visual próprio, sem trackbars nativas do OpenCV.
+
+    A janela é desenhada como uma imagem normal, com sliders, legendas e valores.
+    Isso evita a área preta e a falta de textos que podem ocorrer com as trackbars
+    nativas do backend Qt do OpenCV em alguns ambientes Linux.
+    """
+
+    def __init__(self, score_min=0.0, detect_every=5, width=None, height=None):
+        self.win = "BLAZE - controles"
+        self.canvas_w = 620
+        self.canvas_h = 250
+        self.x0 = 225
+        self.x1 = 545
+        self.rows = {
+            'res_idx': 78,
+            'detect_every': 135,
+            'score_slider': 192,
+        }
+        self.drag_key = None
+
+        self.res_idx = int(_indice_resolucao_inicial(width, height))
+        self.detect_every = int(max(1, min(30, int(detect_every))))
+        self.score_slider = int(_score_para_slider(score_min))
+
+        cv2.namedWindow(self.win, cv2.WINDOW_AUTOSIZE)
+        cv2.setMouseCallback(self.win, self._on_mouse)
+        self.desenhar()
+
+    def _clamp(self, v, lo, hi):
+        return max(lo, min(hi, v))
+
+    def _valor_para_x(self, valor, vmin, vmax):
+        if vmax <= vmin:
+            return self.x0
+        t = (float(valor) - float(vmin)) / float(vmax - vmin)
+        return int(round(self.x0 + self._clamp(t, 0.0, 1.0) * (self.x1 - self.x0)))
+
+    def _x_para_valor(self, x, vmin, vmax, inteiro=True):
+        t = (float(x) - self.x0) / float(self.x1 - self.x0)
+        v = float(vmin) + self._clamp(t, 0.0, 1.0) * float(vmax - vmin)
+        return int(round(v)) if inteiro else v
+
+    def _key_proxima(self, y):
+        return min(self.rows.keys(), key=lambda k: abs(int(y) - self.rows[k]))
+
+    def _atualizar_por_mouse(self, key, x):
+        if key == 'res_idx':
+            self.res_idx = self._clamp(self._x_para_valor(x, 0, len(RESOLUTION_PRESETS) - 1), 0, len(RESOLUTION_PRESETS) - 1)
+        elif key == 'detect_every':
+            self.detect_every = self._clamp(self._x_para_valor(x, 1, 30), 1, 30)
+        elif key == 'score_slider':
+            self.score_slider = self._clamp(self._x_para_valor(x, 0, 400), 0, 400)
+        self.desenhar()
+
+    def _on_mouse(self, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            key = self._key_proxima(y)
+            if abs(y - self.rows[key]) <= 24:
+                self.drag_key = key
+                self._atualizar_por_mouse(key, x)
+        elif event == cv2.EVENT_MOUSEMOVE and self.drag_key is not None:
+            self._atualizar_por_mouse(self.drag_key, x)
+        elif event == cv2.EVENT_LBUTTONUP:
+            if self.drag_key is not None:
+                self._atualizar_por_mouse(self.drag_key, x)
+            self.drag_key = None
+
+    def _desenhar_slider(self, img, key, label, value_text, vmin, vmax, valor, ajuda):
+        y = self.rows[key]
+        cv2.putText(img, label, (24, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (40, 40, 40), 1, cv2.LINE_AA)
+        cv2.putText(img, value_text, (24, y + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (70, 70, 70), 1, cv2.LINE_AA)
+
+        cv2.line(img, (self.x0, y), (self.x1, y), (175, 175, 175), 8, cv2.LINE_AA)
+        cv2.line(img, (self.x0, y), (self._valor_para_x(valor, vmin, vmax), y), (45, 125, 220), 8, cv2.LINE_AA)
+
+        # Marcas discretas.
+        n_marks = 6 if key != 'res_idx' else len(RESOLUTION_PRESETS)
+        for i in range(n_marks):
+            if n_marks <= 1:
+                x = self.x0
+            else:
+                x = int(round(self.x0 + i * (self.x1 - self.x0) / (n_marks - 1)))
+            cv2.line(img, (x, y + 12), (x, y + 17), (120, 120, 120), 1, cv2.LINE_AA)
+
+        xk = self._valor_para_x(valor, vmin, vmax)
+        cv2.circle(img, (xk, y), 12, (250, 250, 250), -1, cv2.LINE_AA)
+        cv2.circle(img, (xk, y), 12, (45, 125, 220), 2, cv2.LINE_AA)
+        cv2.putText(img, ajuda, (self.x0, y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.39, (95, 95, 95), 1, cv2.LINE_AA)
+
+    def desenhar(self):
+        img = np.full((self.canvas_h, self.canvas_w, 3), 245, dtype=np.uint8)
+        cv2.rectangle(img, (0, 0), (self.canvas_w - 1, self.canvas_h - 1), (210, 210, 210), 1)
+        cv2.putText(img, "BLAZE - ajustes da webcam", (24, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (20, 20, 20), 2, cv2.LINE_AA)
+        cv2.putText(img, "Arraste os marcadores azuis. Feche com q na janela da webcam.", (24, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (80, 80, 80), 1, cv2.LINE_AA)
+
+        width, height = RESOLUTION_PRESETS[self.res_idx]
+        self._desenhar_slider(
+            img, 'res_idx', "Resolucao", f"{width} x {height}",
+            0, len(RESOLUTION_PRESETS) - 1, self.res_idx,
+            "maior = mais detalhe, mas deteccao mais pesada",
+        )
+        self._desenhar_slider(
+            img, 'detect_every', "Atualizacao da deteccao", f"a cada {self.detect_every} frame(s)",
+            1, 30, self.detect_every,
+            "menor = atualiza mais rapido; maior = mais fluido",
+        )
+        score_min = _slider_para_score(self.score_slider)
+        self._desenhar_slider(
+            img, 'score_slider', "Score minimo", f"{score_min:.1f}",
+            0, 400, self.score_slider,
+            "mais negativo = mais permissivo; mais positivo = mais rigoroso",
+        )
+        cv2.imshow(self.win, img)
+
+    def ler(self):
+        self.desenhar()
+        width, height = RESOLUTION_PRESETS[self.res_idx]
+        return {
+            'res_idx': int(self.res_idx),
+            'width': int(width),
+            'height': int(height),
+            'detect_every': int(self.detect_every),
+            'score_min': float(_slider_para_score(self.score_slider)),
+        }
+
+
+def criar_controles_runtime(score_min=0.0, detect_every=5, width=None, height=None):
+    """Cria painel de controles desenhado manualmente com OpenCV."""
+    return PainelControlesRuntime(score_min=score_min, detect_every=detect_every, width=width, height=height)
+
+
+def ler_controles_runtime(painel):
+    """Lê controles do painel customizado."""
+    try:
+        return painel.ler()
+    except Exception:
+        return None
+
+
 def abrir_camera(camera_index=0, width=None, height=None):
     """Abre webcam com fallback para Windows/VS Code."""
     backends = []
@@ -3224,17 +2917,87 @@ def abrir_camera(camera_index=0, width=None, height=None):
     raise RuntimeError(f"Não foi possível abrir a webcam índice {camera_index}.")
 
 
+def _executar_deteccao_runtime(frame, params, clf, score_min=0.0, nms_iou=0.30, max_det=8):
+    """Executa a pipeline pesada de detecção em um frame.
+
+    Esta função é separada para permitir execução assíncrona: a janela da webcam
+    continua atualizando enquanto a detecção clássica roda em segundo plano.
+    """
+    det = detectar_candidatos_cilindro(
+        frame,
+        clf=clf,
+        p=params,
+        score_min=score_min,
+        nms_iou=nms_iou,
+        max_det=max_det,
+        aplicar_nms=True
+    )
+    return det.get('positivos_finais', []), det.get('info', {})
+
+
 def rodar_webcam(params, clf, camera_index=0, score_min=0.0, nms_iou=0.30, max_det=8,
-                 width=None, height=None, espelhar=False, resize_display=1.0):
+                 width=None, height=None, espelhar=False, resize_display=1.0,
+                 detect_every=5, max_rois_runtime=None, async_detection=True,
+                 controles=True):
+    """Executa webcam com inferência clássica.
+
+    Para evitar que a janela pareça travada, a detecção pode rodar de forma
+    assíncrona. Assim, a captura e exibição seguem em tempo real e a BBox mais
+    recente é reaproveitada até a próxima detecção ficar pronta.
+    """
+    params_runtime = dict(params)
+    if max_rois_runtime is not None:
+        params_runtime['max_rois'] = int(max(1, max_rois_runtime))
+
+    detect_every = int(max(1, detect_every))
     cap = abrir_camera(camera_index=camera_index, width=width, height=height)
+
+    controles_win = None
+    controles_estado = None
+    res_idx_atual = _indice_resolucao_inicial(width, height)
+    score_min_runtime = float(score_min)
+    detect_every_runtime = int(detect_every)
+
+    if controles:
+        controles_win = criar_controles_runtime(
+            score_min=score_min_runtime,
+            detect_every=detect_every_runtime,
+            width=width,
+            height=height,
+        )
+        controles_estado = ler_controles_runtime(controles_win)
+        if controles_estado is not None:
+            res_idx_atual = controles_estado['res_idx']
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, controles_estado['width'])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, controles_estado['height'])
+            score_min_runtime = controles_estado['score_min']
+            detect_every_runtime = controles_estado['detect_every']
 
     print("\nWebcam iniciada.")
     print("Pressione 'q' para sair.")
-    print("A tela mostra apenas a BBox final da detecção.\n")
+    print("A tela mostra apenas a BBox final da detecção.")
+    print(f"Modo assíncrono: {bool(async_detection)} | detect_every inicial={detect_every_runtime} | max_rois_runtime={params_runtime.get('max_rois')}")
+    if controles:
+        print("Controles ativos: resolucao | detect_every | score_min_x10.")
+        print("score_min_x10: -50 significa score_min=-5.0; -200 significa score_min=-20.0.\n")
+    else:
+        print()
 
     fps_t0 = time.time()
     fps_count = 0
     fps = 0.0
+    det_fps_t0 = time.time()
+    det_count = 0
+    det_fps = 0.0
+    frame_idx = 0
+
+    ultimas_deteccoes = []
+    ultimo_info = {}
+    ultimo_erro = None
+    last_submit_time = 0.0
+    future = None
+
+    executor = ThreadPoolExecutor(max_workers=1) if async_detection else None
 
     try:
         while True:
@@ -3246,23 +3009,74 @@ def rodar_webcam(params, clf, camera_index=0, score_min=0.0, nms_iou=0.30, max_d
             if espelhar:
                 frame = cv2.flip(frame, 1)
 
-            try:
-                det = detectar_candidatos_cilindro(
-                    frame,
-                    clf=clf,
-                    p=params,
-                    score_min=score_min,
-                    nms_iou=nms_iou,
-                    max_det=max_det,
-                    aplicar_nms=True
-                )
-                saida = desenhar_apenas_bboxes(frame, det.get('positivos_finais', []), mostrar_score=True)
-                n_det = len(det.get('positivos_finais', []))
-            except Exception as e:
-                saida = frame.copy()
-                n_det = 0
-                cv2.putText(saida, f"erro: {str(e)[:80]}", (12, 28),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2, cv2.LINE_AA)
+            frame_idx += 1
+
+            if controles and controles_win is not None:
+                controles_estado = ler_controles_runtime(controles_win)
+                if controles_estado is not None:
+                    score_min_runtime = controles_estado['score_min']
+                    detect_every_runtime = controles_estado['detect_every']
+                    if controles_estado['res_idx'] != res_idx_atual:
+                        res_idx_atual = controles_estado['res_idx']
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, controles_estado['width'])
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, controles_estado['height'])
+                        ultimas_deteccoes = []
+                        ultimo_info = {}
+                        print(
+                            f"[CONTROLE] resolucao={controles_estado['width']}x{controles_estado['height']} | "
+                            f"detect_every={detect_every_runtime} | score_min={score_min_runtime:.1f}",
+                            flush=True,
+                        )
+
+            should_detect = (frame_idx % detect_every_runtime == 1)
+
+            if async_detection:
+                # Coleta resultado pronto, se houver.
+                if future is not None and future.done():
+                    try:
+                        ultimas_deteccoes, ultimo_info = future.result()
+                        ultimo_erro = None
+                        det_count += 1
+                    except Exception as e:
+                        ultimas_deteccoes = []
+                        ultimo_info = {}
+                        ultimo_erro = str(e)[:120]
+                    future = None
+
+                # Submete nova detecção apenas se não há outra rodando.
+                if should_detect and future is None:
+                    frame_para_detectar = frame.copy()
+                    future = executor.submit(
+                        _executar_deteccao_runtime,
+                        frame_para_detectar,
+                        params_runtime,
+                        clf,
+                        score_min_runtime,
+                        nms_iou,
+                        max_det
+                    )
+                    last_submit_time = time.time()
+            else:
+                # Modo síncrono: mais simples, porém a janela pode travar durante a detecção.
+                if should_detect:
+                    try:
+                        ultimas_deteccoes, ultimo_info = _executar_deteccao_runtime(
+                            frame,
+                            params_runtime,
+                            clf,
+                            score_min_runtime,
+                            nms_iou,
+                            max_det
+                        )
+                        ultimo_erro = None
+                        det_count += 1
+                    except Exception as e:
+                        ultimas_deteccoes = []
+                        ultimo_info = {}
+                        ultimo_erro = str(e)[:120]
+
+            saida = desenhar_apenas_bboxes(frame, ultimas_deteccoes, mostrar_score=True)
+            n_det = len(ultimas_deteccoes)
 
             fps_count += 1
             now = time.time()
@@ -3270,9 +3084,20 @@ def rodar_webcam(params, clf, camera_index=0, score_min=0.0, nms_iou=0.30, max_d
                 fps = fps_count / max(1e-6, now - fps_t0)
                 fps_t0 = now
                 fps_count = 0
+            if now - det_fps_t0 >= 1.0:
+                det_fps = det_count / max(1e-6, now - det_fps_t0)
+                det_fps_t0 = now
+                det_count = 0
 
-            cv2.putText(saida, f"FPS {fps:.1f} | det {n_det}", (12, 28),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
+            status = "detectando..." if (async_detection and future is not None) else "det ok"
+            cv2.putText(saida, f"view FPS {fps:.1f} | det FPS {det_fps:.1f} | det {n_det} | {status}", (12, 28),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(saida, f"score_min {score_min_runtime:.1f} | detect_every {detect_every_runtime} | res idx {res_idx_atual}", (12, 52),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2, cv2.LINE_AA)
+
+            if ultimo_erro:
+                cv2.putText(saida, f"erro: {ultimo_erro}", (12, 76),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 0, 255), 2, cv2.LINE_AA)
 
             if resize_display and abs(float(resize_display) - 1.0) > 1e-6:
                 saida = cv2.resize(saida, None, fx=float(resize_display), fy=float(resize_display),
@@ -3284,6 +3109,8 @@ def rodar_webcam(params, clf, camera_index=0, score_min=0.0, nms_iou=0.30, max_d
                 break
 
     finally:
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
         cap.release()
         cv2.destroyAllWindows()
 
@@ -3304,6 +3131,10 @@ def main():
     parser.add_argument('--height', type=int, default=None, help='Altura desejada da captura.')
     parser.add_argument('--mirror', action='store_true', help='Espelha a webcam horizontalmente.')
     parser.add_argument('--display-scale', type=float, default=1.0, help='Escala de exibição da janela.')
+    parser.add_argument('--detect-every', type=int, default=5, help='Executa a detecção pesada a cada N frames. Padrão: 5.')
+    parser.add_argument('--max-rois-runtime', type=int, default=None, help='Limita max_rois durante a webcam para melhorar desempenho.')
+    parser.add_argument('--sync-detection', action='store_true', help='Desativa detecção assíncrona. Útil apenas para depuração.')
+    parser.add_argument('--no-controls', action='store_true', help='Desativa a janela de controles com sliders OpenCV.')
 
     args = parser.parse_args()
 
@@ -3332,6 +3163,10 @@ def main():
         height=args.height,
         espelhar=args.mirror,
         resize_display=args.display_scale,
+        detect_every=args.detect_every,
+        max_rois_runtime=args.max_rois_runtime,
+        async_detection=not args.sync_detection,
+        controles=not args.no_controls,
     )
 
 
