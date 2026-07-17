@@ -145,11 +145,11 @@ O mesmo dataset externo é usado pelos dois módulos de detecção de cilindros:
 
 Detector clássico:
 
-    vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+    vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb
 
 Detector YOLO:
 
-    vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo.ipynb
+    vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo_setups_tempo_memoria.ipynb
 
 Selecione o kernel:
 

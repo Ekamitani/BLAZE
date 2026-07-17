@@ -23,13 +23,13 @@ O detector clássico de cilindros está em:
 
 Notebook principal:
 
-    vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+    vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb
 
 Esse notebook combina técnicas clássicas de visão computacional, como pré-processamento, Canny, Hough, análise geométrica, HOG e SVM.
 
 Para detalhes específicos, consulte:
 
-    vision/cylinders_detect/classic_vision/README.md
+    vision/cylinders_detect/classic_vision/runtime_classico_v2_dropdown_setup_sliders_webcam.ipynb
 
 ### Detector de fogo
 
@@ -101,7 +101,7 @@ Para usar este módulo em outro computador:
 
 Para o detector clássico de cilindros, o notebook principal é:
 
-    vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+    vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb
 
 ## 7. Cuidados ao versionar alterações
 

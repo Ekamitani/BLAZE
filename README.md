@@ -1,208 +1,191 @@
 # BLAZE
 
-Projeto para desenvolvimento de sistemas de visão computacional e automação aplicados a robôs de combate a incêndio.
+Projeto universitário de desenvolvimento de sistemas de visão computacional, sensoriamento e automação aplicados a um robô de apoio ao combate a incêndios.
 
-## Estrutura do projeto
+A versão atual inclui:
 
-~~~text
+- detecção de cilindros industriais por visão clássica com HOG/SVM;
+- detecção de cilindros industriais com YOLO;
+- monitoramento monocular de fogo em imagens RGB;
+- visão térmica estéreo aplicada à automação do jato de água;
+- simulador de planejamento e atuação do jato;
+- integração experimental com Arduino e servomotores.
+
+Versão oficial atual: **v0.3.0**.
+
+## Estrutura principal
+
+```text
 BLAZE/
 ├── vision/
 │   ├── cylinders_detect/
-│   │   ├── classic_vision/
-│   │   └── YOLO/
 │   ├── fire_detect/
-│   │   ├── classic_vision/
-│   │   └── YOLO/
 │   ├── datasets/
 │   ├── parameters_setups/
 │   └── results/
-│
 ├── jet_automation/
-│   ├── simulation/
-│   ├── parameters_setups/
-│   └── results/
-│
+├── scripts/
 ├── src/
 ├── requirements.txt
 └── README.md
-~~~
+```
 
-## Instalação recomendada
+## Instalação básica
 
 Clone o repositório:
 
-~~~bash
+```bash
 git clone https://github.com/Ekamitani/BLAZE.git
 cd BLAZE
-~~~
+```
 
 Crie um ambiente virtual:
 
-~~~bash
+```bash
 python -m venv .venv
-~~~
+```
 
 Ative o ambiente no Linux:
 
-~~~bash
+```bash
 source .venv/bin/activate
-~~~
+```
 
 Ative o ambiente no Windows:
 
-~~~bash
+```powershell
 .venv\Scripts\activate
-~~~
+```
 
 Instale as dependências:
 
-~~~bash
-python -m pip install -U pip
+```bash
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-~~~
+```
 
-## Uso no VS Code
+Para instruções detalhadas, consulte o [Guia de uso local](GUIA_USO_LOCAL.md).
+
+## Uso no Visual Studio Code
 
 1. Abra a pasta `BLAZE` no Visual Studio Code.
 2. Instale as extensões Python e Jupyter.
-3. Abra o notebook desejado.
-4. Selecione o kernel Python do ambiente `.venv`.
+3. Selecione o interpretador Python da pasta `.venv`.
+4. Abra o notebook desejado.
+5. Selecione o mesmo ambiente como kernel do Jupyter.
 
-## Organização dos setups
+## Detecção clássica de cilindros
 
-Os setups oficiais ficam em:
+Notebook principal de desenvolvimento e treinamento:
 
-~~~text
-vision/parameters_setups/official/
-jet_automation/parameters_setups/official/
-~~~
+[`detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb`](vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb)
 
-Os setups criados localmente pelo usuário ficam em:
+Notebook comparativo por janela deslizante:
 
-~~~text
-vision/parameters_setups/user/
-jet_automation/parameters_setups/user/
-~~~
+[`detector_cilindros_hog_svm_janela_deslizante_teste_comparativo.ipynb`](vision/cylinders_detect/classic_vision/detector_cilindros_hog_svm_janela_deslizante_teste_comparativo.ipynb)
 
-As pastas `user/` não são enviadas ao GitHub, pois são ignoradas pelo `.gitignore`.
+Runtime interativo para webcam:
 
-## Organização dos resultados
+[`runtime_classico_v2_dropdown_setup_sliders_webcam.ipynb`](vision/cylinders_detect/classic_vision/runtime_classico_v2_dropdown_setup_sliders_webcam.ipynb)
 
-Resultados gerados pelos notebooks devem ser salvos em:
+Núcleo Python do runtime:
 
-~~~text
-vision/results/
-jet_automation/results/
-~~~
+[`_runtime_classico_v2_core.py`](vision/cylinders_detect/classic_vision/_runtime_classico_v2_core.py)
 
-Essas pastas também não são enviadas ao GitHub, exceto pelo arquivo `.gitkeep`.
+Execução rápida no Linux:
 
-## Guia de uso local
+```bash
+./rodar_runtime_classico_v2.sh
+```
 
-Para executar o projeto em outro computador usando Visual Studio Code, consulte:
+O runtime utiliza por padrão os parâmetros registrados nos metadados do modelo treinado.
 
-~~~text
-GUIA_USO_LOCAL.md
-~~~
-
-## Módulo YOLO de cilindros industriais
-
-O projeto inclui um módulo YOLO para detecção de cilindros industriais.
+## Detecção de cilindros com YOLO
 
 Notebook principal:
 
-~~~text
-vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo.ipynb
-~~~
+[`detector_cilindros_yolo_interativo_setups_tempo_memoria.ipynb`](vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo_setups_tempo_memoria.ipynb)
 
-Guia específico do módulo:
+Runtime interativo para webcam:
 
-~~~text
-vision/cylinders_detect/YOLO/README.md
-~~~
+[`runtime_yolo_dropdown_setup_sliders_webcam.ipynb`](vision/cylinders_detect/YOLO/runtime_yolo_dropdown_setup_sliders_webcam.ipynb)
 
-O notebook permite usar peso oficial treinado pela GitHub Release, sem necessidade de treinar novamente. Também permite treinamento, continuação de treinamento, inferência em imagens, vídeos salvos e webcam local no VS Code.
+Modelo oficial:
 
-Os pesos oficiais do YOLO são disponibilizados pela release:
+[`yolo_cylinders_best.pt`](vision/results/yolo_cylinder_detector/weights/yolo_cylinders_best.pt)
 
-~~~text
-v0.2.0-yolo-cylinders
-~~~
+## Monitoramento monocular de fogo em RGB
 
-## Notebooks principais
+Notebook principal:
 
-Detector clássico de cilindros:
+[`fire_monitor_RGB_monocular_yolo_arduino.ipynb`](vision/fire_detect/fire_monitor_RGB_monocular/fire_monitor_RGB_monocular_yolo_arduino.ipynb)
 
-~~~text
-vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
-~~~
+O módulo realiza detecção de regiões de fogo, planejamento de trajetória do jato e integração experimental com Arduino.
 
-Detector YOLO de cilindros:
+## Visão térmica estéreo e automação do jato
 
-~~~text
-vision/cylinders_detect/YOLO/detector_cilindros_yolo_interativo.ipynb
-~~~
+Notebook principal:
 
-Simulador de atuação do jato de água:
+[`thermal_stereo_vision_jet_automation.ipynb`](vision/fire_detect/jet_automation/thermal_stereo_vision_jet_automation.ipynb)
 
-~~~text
-jet_automation/simulation/firefighting_simulator/firefighting_simulator.ipynb
-~~~
+Arquivo de calibração estéreo:
 
+[`stereo_calibration2.npz`](vision/fire_detect/jet_automation/parameters_setups/stereo_calibration2.npz)
 
-## Documentação complementar
+O módulo combina detecção térmica, estimativa de profundidade e planejamento da atuação do jato de água.
 
-Guias principais do projeto:
+## Simulador de combate a incêndio
 
-    GUIA_USO_LOCAL.md
-    INSTALACAO_DADOS.md
-    GUIA_SETUPS_PARAMETRICOS.md
+Notebook principal:
 
-Documentação específica dos notebooks:
+[`firefighting_simulator.ipynb`](jet_automation/simulation/firefighting_simulator/firefighting_simulator.ipynb)
 
-    vision/cylinders_detect/classic_vision/README.md
-    jet_automation/simulation/firefighting_simulator/README.md
+Documentação específica:
 
-Use GUIA_USO_LOCAL.md para instalar o projeto em outro computador.
-Use INSTALACAO_DADOS.md para instalar dataset e curadoria.
-Use GUIA_SETUPS_PARAMETRICOS.md para aprender a exportar setups locais como setups oficiais compartilhados pelo GitHub.
+[`README.md`](jet_automation/simulation/firefighting_simulator/README.md)
 
-## Automação de setups
+O simulador permite testar estratégias de detecção, priorização de focos e planejamento da trajetória do jato.
 
-O projeto possui scripts auxiliares para comparar e promover setups paramétricos entre as pastas locais user/ e oficiais official/.
+## Guias do projeto
 
-Comparar setups locais e oficiais:
+- [Fluxo de trabalho com Git](GUIA_FLUXO_GIT.md)
+- [Navegação pela estrutura do projeto](GUIA_NAVEGACAO_PROJETO.md)
+- [Setups paramétricos](GUIA_SETUPS_PARAMETRICOS.md)
+- [Uso local](GUIA_USO_LOCAL.md)
+- [Instalação dos dados](INSTALACAO_DADOS.md)
+- [Contribuição](CONTRIBUTING.md)
 
-    python scripts/comparar_setups.py --verbose
+## Setups paramétricos
 
-Promover um setup local para setup oficial:
+Os parâmetros dos módulos podem ser organizados em setups reutilizáveis.
 
-    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005
+Os setups oficiais ficam em pastas `parameters_setups/official`, enquanto configurações pessoais podem ser mantidas separadamente.
 
-Tipos disponíveis:
+Consulte o [Guia de setups paramétricos](GUIA_SETUPS_PARAMETRICOS.md) para criar, salvar, comparar e promover configurações.
 
-    cilindros_parametricos
-    cilindros_refinamento
-    simulador_incendio
+## Modelos e dados
 
-Para sobrescrever intencionalmente um setup oficial existente:
+Os modelos oficiais necessários para execução estão versionados no repositório.
 
-    python scripts/promover_setup.py --tipo cilindros_parametricos --id S005 --overwrite
+Datasets completos, vídeos e arquivos grandes de resultados devem ser instalados separadamente.
 
-Para detalhes completos, consulte:
+Consulte o [Guia de instalação dos dados](INSTALACAO_DADOS.md) para conferir a estrutura esperada.
 
-    GUIA_SETUPS_PARAMETRICOS.md
+## Contribuição e versionamento
 
-## Guia de navegação e contribuição
+As alterações devem ser desenvolvidas em uma branch (linha de desenvolvimento) própria e integradas por meio de PR (solicitação de integração).
 
-Para saber qual documentação ler em cada situação, consulte:
+Antes de contribuir, consulte:
 
-    GUIA_NAVEGACAO_PROJETO.md
+- [Guia de contribuição](CONTRIBUTING.md)
+- [Guia de fluxo com Git](GUIA_FLUXO_GIT.md)
 
-Para contribuir com código ou documentação, consulte:
+As versões oficiais do projeto são identificadas por tags (marcadores de versão) e publicadas na área de Releases do GitHub.
 
-    CONTRIBUTING.md
+## Licença
 
-Pull Requests usam o template em:
+Consulte o arquivo de licença do repositório para verificar as condições de uso, modificação e distribuição.
 
-    .github/pull_request_template.md
+## Projeto BLAZE
+
+Desenvolvido no contexto de atividades acadêmicas e voluntárias da Universidade Federal de Santa Catarina, campus Joinville, com foco em aplicações de robótica e visão computacional para apoio ao combate a incêndios.

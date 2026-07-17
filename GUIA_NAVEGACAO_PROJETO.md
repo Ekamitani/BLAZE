@@ -9,7 +9,7 @@ Leia nesta ordem:
     1. README.md
     2. GUIA_USO_LOCAL.md
     3. INSTALACAO_DADOS.md
-    4. vision/cylinders_detect/classic_vision/README.md
+    4. vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb
     5. jet_automation/simulation/firefighting_simulator/README.md
 
 Esse caminho é indicado para quem quer instalar o ambiente, baixar os dados e executar os notebooks.
@@ -43,7 +43,7 @@ Contribuições externas devem ser feitas por branch ou fork e enviadas por Pull
 Leia nesta ordem:
 
     1. GUIA_SETUPS_PARAMETRICOS.md
-    2. vision/cylinders_detect/classic_vision/README.md
+    2. vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb
     3. jet_automation/simulation/firefighting_simulator/README.md
 
 Scripts úteis:

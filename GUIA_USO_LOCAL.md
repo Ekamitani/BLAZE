@@ -85,7 +85,7 @@ O dataset completo não é enviado ao GitHub. Ele deve ser colocado manualmente 
 Detector clássico de cilindros:
 
 ~~~text
-vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo.ipynb
+vision/cylinders_detect/classic_vision/detector_cilindros_hough_hog_svm_interativo_v2_pares_retas_corrigido.ipynb
 ~~~
 
 Simulador de atuação do jato de água:
