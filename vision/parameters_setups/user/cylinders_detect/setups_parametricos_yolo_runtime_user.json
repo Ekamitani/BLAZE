@@ -1,0 +1,31 @@
+{
+  "versao": "setups_parametricos_yolo_runtime_v1",
+  "descricao": "Setups de runtime YOLO para webcam, com seleção de modelo e ajuste de parâmetros.",
+  "setups": {
+    "YOLORUN001": {
+      "nome": "YOLOv8n runtime padrão — webcam",
+      "descricao": "Setup base para inferência YOLO em webcam com o peso treinado do projeto.",
+      "params": {
+        "model_path": "vision/results/yolo_cylinder_detector/weights/yolo_cylinders_best.pt",
+        "camera_index": 0,
+        "conf": 0.35,
+        "iou": 0.5,
+        "imgsz": 640,
+        "max_det": 20,
+        "update_every": 1,
+        "camera_width": 1280,
+        "camera_height": 720,
+        "mirror": false,
+        "show_fps": true,
+        "show_conf": true,
+        "line_width": 2,
+        "window_name": "BLAZE — YOLO cilindros",
+        "device": "",
+        "save_runtime_csv": true,
+        "save_frames": false,
+        "save_video": false,
+        "video_fps": 20.0
+      }
+    }
+  }
+}

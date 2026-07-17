@@ -1,0 +1,35 @@
+{
+    "versao": "setups_parametricos_yolo_v1",
+    "descricao": "Setups paramétricos de treinamento YOLO para detecção de cilindros no projeto BLAZE.",
+    "atualizado_em": "2026-06-28T16:56:42",
+    "setups": {
+        "YOLO001": {
+            "nome": "YOLOv8n padrão — CylinDeRS-1",
+            "descricao": "Setup base para treinamento YOLOv8n no dataset CylinDeRS-1.",
+            "origem": "user",
+            "criado_em": "2026-06-28T16:56:42",
+            "atualizado_em": "2026-06-28T16:56:42",
+            "params": {
+                "modelo_base": "yolov8n.pt",
+                "run_name": "yolov8n_cilindros_blaze_v1",
+                "epochs": 50,
+                "imgsz": 640,
+                "batch": 8,
+                "conf": 0.35,
+                "iou": 0.5,
+                "device_yolo": "cpu",
+                "continuar_treino_se_existir": true,
+                "forcar_treino_do_zero": false,
+                "criar_nova_execucao_ao_continuar": true,
+                "workers": 0,
+                "cache": false,
+                "patience": 50,
+                "optimizer": "auto",
+                "lr0": "",
+                "seed": 42,
+                "plots": true,
+                "verbose": false
+            }
+        }
+    }
+}

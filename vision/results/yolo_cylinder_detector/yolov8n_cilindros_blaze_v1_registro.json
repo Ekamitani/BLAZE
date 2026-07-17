@@ -1,0 +1,19 @@
+{
+  "run_name": "yolov8n_cilindros_blaze_v1",
+  "modelo_base": "yolov8n.pt",
+  "dataset_dir": "vision/datasets/cylinders/CylinDeRS-1",
+  "data_yaml_local": "vision/datasets/cylinders/CylinDeRS-1/data_local_blaze.yaml",
+  "classes": [
+    "cylinder"
+  ],
+  "epochs": 50,
+  "imgsz": 640,
+  "batch": 8,
+  "conf": 0.35,
+  "iou": 0.5,
+  "device": "cpu",
+  "device_yolo": "cpu",
+  "run_dir": "vision/results/yolo_cylinder_detector/weights",
+  "best_model_path": "vision/results/yolo_cylinder_detector/weights/yolo_cylinders_best.pt",
+  "last_model_path": "vision/results/yolo_cylinder_detector/weights/yolo_cylinders_best.pt"
+}

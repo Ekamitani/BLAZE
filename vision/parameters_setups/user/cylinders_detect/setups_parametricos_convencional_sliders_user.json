@@ -1,0 +1,50 @@
+{
+  "versao": "setups_parametricos_hog_svm_convencional_v2_sliders",
+  "descricao": "Setup convencional HOG/SVM com janela deslizante. Parâmetros de HOG/SVM e pré-processamento alinhados ao método customizado; a carga computacional é ajustada pelos sliders do notebook.",
+  "atualizado_em": "2026-06-27 20:21:00",
+  "setups": {
+    "CONV001": {
+      "nome": "convencional janela deslizante | S004 base | sliders de carga",
+      "data_hora": "2026-06-27 20:21:00",
+      "params": {
+        "clahe_ativo": true,
+        "clahe_clip": 1.5,
+        "clahe_grid": 16,
+        "bilateral_d": 5,
+        "bilateral_sigma_color": 60,
+        "bilateral_sigma_space": 50,
+        "canny_sigma": 0.33,
+        "canny_aperture": 3,
+        "canny_l2gradient": true,
+        "hog_input": "bilateral",
+        "hog_resize_w": 64,
+        "hog_resize_h": 160,
+        "hog_orientations": 12,
+        "hog_pixels_per_cell": 4,
+        "hog_cells_per_block": 2,
+        "svm_C": 1.7783,
+        "usar_selecao_salva": true,
+        "usar_test_real": true,
+        "negativos_por_positivo": 1,
+        "neg_iou_max": 0.05,
+        "pos_margin_pct": 0.1,
+        "neg_attempts": 40,
+        "max_train_images": 600,
+        "max_test_images": 120,
+        "test_size": 0.4,
+        "random_state": 42,
+        "slide_win_w": 64,
+        "slide_win_h": 160,
+        "slide_scales": "1.0,1.5",
+        "slide_step_px": 32,
+        "slide_max_windows": 3000,
+        "slide_min_window_area": 900,
+        "det_score_min": 0.0,
+        "det_nms_iou": 0.3,
+        "det_iou_thr": 0.5,
+        "det_max_det": 8,
+        "det_eval_max_images": 30
+      }
+    }
+  }
+}
